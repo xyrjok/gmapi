@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统设置 - Gmail Console</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="files/admin.css" rel="stylesheet">
+</head>
+<body>
+
+<div id="admin-container">
+    <div class="mobile-header">
+        <span class="fw-bold">Settings</span>
+        <button class="btn btn-sm btn-light" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+    </div>
+    <div id="overlay" onclick="toggleSidebar()"></div>
+
+    <div class="admin-sidebar" id="sidebar">
+        <div class="sidebar-header"><i class="fab fa-google"></i> Gmail 后台</div>
+        <ul class="list-unstyled">
+            <li><a class="nav-link" href="nodes.html"><i class="fas fa-server"></i> API 节点</a></li>
+            <li><a class="nav-link" href="receivers.html"><i class="fas fa-inbox"></i> 收件设置</a></li>
+            <li><a class="nav-link" href="logs.html"><i class="fas fa-history"></i> 发送记录</a></li>
+            <li><a class="nav-link" href="settings.html"><i class="fas fa-cog"></i> 系统设置</a></li>
+            <li><a class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> 退出登录</a></li>
+        </ul>
+    </div>
+
+    <div class="admin-content">
+        <div class="content-card">
+            <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+                <h3 class="m-0">系统设置</h3>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">游客留言接收邮箱</label>
+                        <input type="email" class="form-control" id="setting_admin_email" placeholder="example@gmail.com">
+                        <div class="form-text">网站前台“联系我们”表单的留言将发送到此邮箱。</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save"></i> 保存设置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="files/admin.js"></script>
+<script>
+    checkAuth();
+    initSidebar();
+    
+    window.onload = function() { loadSettings(); }
+
+    async function loadSettings() {
+        const config = await api('/api/admin/config');
+        if (config && config.admin_email) {
+            document.getElementById('setting_admin_email').value = config.admin_email;
+        }
+    }
+    async function saveSettings() {
+        const email = document.getElementById('setting_admin_email').value;
+        const res = await api('/api/admin/config', 'POST', { admin_email: email });
+        if (res.success) alert("设置保存成功");
+        else alert("保存失败");
+    }
+</script>
+</body>
+</html>
