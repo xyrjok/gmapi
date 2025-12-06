@@ -25,7 +25,7 @@ export default {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>查询结果</title>
             <style>
-.content-output {font-size: 15px; font-weight: 500; font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; word-wrap: break-word; white-space: pre-wrap; margin: 0; }
+.content-output {font-size: 15px; font-weight: 500; font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; word-wrap: break-word; white-space: normal; margin: 0; }
 @media (max-width: 670px) { .content-output { font-size: 13px; } }
             </style>
         </head>
@@ -262,7 +262,8 @@ export default {
                     // 修改：去除 [image:...] 并转义 HTML
                     const displayBody = (e.body || e.snippet || "")
                         .replace(/</g,'&lt;')
-                        .replace(/\[image:[^\]]*\]/g, ''); 
+                        .replace(/\[image:[^\]]*\]/g, '')
+                        .replace(/[\r\n]+/g, ' '); // 新增：将内容中的换行符替换为空格 
 
                     // 注意：这里应用 content-output 样式类
                     return `<div class="content-output">${timeStr} | ${displayBody}</div>`;
