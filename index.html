@@ -3,48 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统通知</title>
+    <title>收信查询 - Gmail API Service</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body {
-            background-color: #f4f7f6;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            height: 100vh;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #2c3e50;
+        body { 
+            background: #f4f7f6; 
+            height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
         }
-        .notification-card {
-            background: #fff;
-            padding: 30px 40px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            text-align: center;
-            max-width: 90%;
+        .query-card { 
+            background: #fff; 
+            width: 100%; 
+            max-width: 420px; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08); 
+            text-align: center; 
         }
-        .text-content {
-            font-size: 18px;
-            font-weight: 500;
-            line-height: 1.6;
+        .icon-box { 
+            width: 80px; 
+            height: 80px; 
+            background: #eefff0; 
+            color: #409EFF; 
+            border-radius: 50%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            margin: 0 auto 25px; 
+            font-size: 36px; 
         }
-        .time {
-            color: #666;
-            font-family: monospace;
-            font-weight: bold;
+        .btn-query { 
+            background-color: #409EFF; 
+            color: white; 
+            width: 100%; 
+            padding: 12px; 
+            border-radius: 6px; 
+            font-weight: 500; 
+            border: none; 
+            transition: 0.3s; 
+            font-size: 16px; 
         }
-        .highlight {
-            color: #d63031;
+        .btn-query:hover { 
+            background-color: #3390ff; 
+            box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3); 
+        }
+        .footer-links { 
+            margin-top: 25px; 
+            font-size: 14px; 
+        }
+        .footer-links a { 
+            color: #666; 
+            text-decoration: none; 
+            margin: 0 10px; 
+            transition: 0.2s; 
+        }
+        .footer-links a:hover { 
+            color: #409EFF; 
         }
     </style>
 </head>
 <body>
-    <div class="notification-card">
-        <div class="text-content">
-            <span class="time">2025-12-06 21:07:48</span> | 
-            <span class="highlight">客户端必须及时更新订阅</span> 
-            才能同步到最新节点信息
+
+    <div class="query-card">
+        <div class="icon-box">
+            <i class="fas fa-search-location"></i>
+        </div>
+        <h3 class="mb-2 fw-bold text-dark">邮件直连查询</h3>
+        <p class="text-muted mb-4 small">请输入您的 Access Code 跳转至收信页</p>
+        
+        <form id="queryForm">
+            <div class="mb-4 text-start">
+                <input type="text" class="form-control form-control-lg bg-light border-0" id="code" placeholder="输入查询码 (如: ABC123XYZ)" required autofocus style="font-family: monospace; letter-spacing: 1px; text-align: center;">
+            </div>
+            
+            <button type="submit" class="btn-query">
+                <i class="fas fa-envelope-open me-2"></i> 立即提取
+            </button>
+        </form>
+
+        <div class="footer-links border-top pt-4 mt-4">
+            <a href="/email.html"><i class="fas fa-paper-plane"></i> 我要留言</a>
+            <span class="text-muted">|</span>
+            <a href="/admin" target="_blank"><i class="fas fa-user-cog"></i> 管理后台</a>
         </div>
     </div>
+
+    <script>
+        document.getElementById('queryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const code = document.getElementById('code').value.trim();
+            if (!code) return;
+            
+            const btn = document.querySelector('.btn-query');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 跳转中...';
+            btn.disabled = true;
+
+            // 核心逻辑：直接修改浏览器地址栏
+            // 例如输入 "ABC"，浏览器将跳转到 "/ABC"
+            // Cloudflare Worker 会拦截这个 "/ABC" 请求并返回邮件列表
+            window.location.href = '/' + code;
+        });
+    </script>
 </body>
 </html>
