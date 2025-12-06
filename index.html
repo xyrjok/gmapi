@@ -3,7 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>收信查询 - Gmail API Service</title>
-  
+    <title>系统通知</title>
+    <style>
+        body {
+            background-color: #f4f7f6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #2c3e50;
+        }
+        .notification-card {
+            background: #fff;
+            padding: 30px 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 90%;
+        }
+        .text-content {
+            font-size: 18px;
+            font-weight: 500;
+            line-height: 1.6;
+        }
+        .time {
+            color: #666;
+            font-family: monospace;
+            font-weight: bold;
+        }
+        .highlight {
+            color: #d63031;
+        }
+    </style>
+</head>
+<body>
+    <div class="notification-card">
+        <div class="text-content">
+            <span class="time">2025-12-06 21:07:48</span> | 
+            <span class="highlight">客户端必须及时更新订阅</span> 
+            才能同步到最新节点信息
+        </div>
+    </div>
 </body>
 </html>
