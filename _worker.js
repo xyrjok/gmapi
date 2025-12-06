@@ -17,7 +17,7 @@ export default {
     });
 
     // ============================================================
-    // 1. 优先处理 API 请求 (保持原有逻辑)
+    // 1. API 接口 (保持原有逻辑，不做修改)
     // ============================================================
 
     // 获取公开渠道
@@ -34,7 +34,6 @@ export default {
     if (path === '/api/contact' && request.method === 'POST') {
       try {
         const { name, contact, message, channel_id } = await request.json();
-        
         let targetEmail = env.ADMIN_EMAIL; 
         try {
             const setting = await XYRJ_GMAILAPI.prepare("SELECT value FROM settings WHERE key = 'admin_email'").first();
@@ -101,10 +100,8 @@ export default {
         if (request.method === 'POST') {
             const data = await request.json();
             if (!data.access_code || !data.name || !data.target_api_name) return jsonResp({ success: false, msg: "参数缺失" }, 400);
-            
             const fetchCount = (data.fetch_count === undefined || data.fetch_count === '') ? 5 : parseInt(data.fetch_count);
             const validDays = (data.valid_days === undefined || data.valid_days === '') ? 0 : parseInt(data.valid_days);
-
             try {
                 if (data.id) {
                     await XYRJ_GMAILAPI.prepare("UPDATE receive_rules SET name=?, access_code=?, fetch_count=?, valid_days=?, match_sender=?, match_body=?, target_api_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
@@ -171,28 +168,23 @@ export default {
     }
 
     // ============================================================
-    // 2. 关键修改：静态资源优先策略
-    //    先让 Cloudflare 尝试加载页面/文件 (abc.html, admin/, email.html 等)
-    //    只有当找不到文件 (404) 时，才认为是查询码
+    // 2. 关键修改：白名单优先策略 (HTML 文件检查)
     // ============================================================
-    
-    // 尝试获取静态资源
+    // 优先尝试加载静态资源 (abc.html, email.html, admin/index.html 等)
+    // 注意：只返回存在的资源 (status 200-399)。
+    // 如果 Asset Fetch 返回 404，说明用户访问的不是仓库里的文件，我们不返回这个 404，而是继续往下跑逻辑去查数据库。
     let assetResponse = await env.ASSETS.fetch(request);
-    
-    // 如果找到了文件（状态码 200-399），直接返回文件，不进行拦截
-    // 这样 abc, email, admin 等存在的页面就会正常显示
     if (assetResponse.status >= 200 && assetResponse.status < 400) {
         return assetResponse;
     }
 
     // ============================================================
-    // 3. 【智能拦截】 只有当文件不存在 (404) 时，才检查数据库
+    // 3. 智能拦截 (查询码检查)
     // ============================================================
-    
     const code = path.substring(1); // 去掉开头的 /
     
     if (code) {
-        // 查询数据库看是否存在这个查询码
+        // 只有当不是静态文件时，才去数据库查询
         const rule = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules WHERE access_code = ?").bind(code).first();
         
         if (rule) {
@@ -237,18 +229,49 @@ export default {
                     return matchS && matchB;
                 });
 
-                // 格式化输出: 中国时间 | 正文
+                // ========================================================
+                // 4. 格式化输出 (修改处)
+                // 格式：日期 时间 | 正文 (如：2025-12-06 21:07:48 | 内容...)
+                // 时间：转换为中国时间 (UTC+8)
+                // ========================================================
                 const contentHtml = finalEmails.map(e => {
-                    const d = new Date(e.date);
-                    const utc = d.getTime(); 
-                    const cst = new Date(utc + 8 * 3600000); // UTC+8
-                    const timeStr = cst.toISOString().replace('T', ' ').substring(0, 19);
+                    // 时间转换: 原时间 -> Unix时间戳 -> +8小时 -> 获取 UTC 组件拼装
+                    const utcTime = new Date(e.date).getTime();
+                    const cnTime = new Date(utcTime + 8 * 3600000); // 加上8小时毫秒数
+
+                    const y = cnTime.getUTCFullYear();
+                    const m = String(cnTime.getUTCMonth() + 1).padStart(2, '0');
+                    const d = String(cnTime.getUTCDate()).padStart(2, '0');
+                    const h = String(cnTime.getUTCHours()).padStart(2, '0');
+                    const min = String(cnTime.getUTCMinutes()).padStart(2, '0');
+                    const s = String(cnTime.getUTCSeconds()).padStart(2, '0');
+                    
+                    const timeStr = `${y}-${m}-${d} ${h}:${min}:${s}`;
+                    
+                    // 正文处理 (转义 HTML 标签防止错乱，但保留换行视觉)
                     const displayBody = (e.body || e.snippet || "").replace(/</g,'&lt;');
-                    return `<div>${timeStr} | ${displayBody}</div>`;
+
+                    // 输出格式
+                    return `<div style="padding: 10px 0; border-bottom: 1px solid #eee;">${timeStr} | ${displayBody}</div>`;
                 }).join('');
 
-                // 简单的 HTML 外壳
-                let html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>查询结果</title><style>body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; color: #333; line-height: 1.6; font-size: 15px; } div { border-bottom: 1px solid #eee; padding: 10px 0; }</style></head><body>${contentHtml || '<div style="color:#999;text-align:center;padding:20px">暂无符合条件的邮件</div>'}</body></html>`;
+                // 极简 HTML 容器
+                let html = `<!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>查询结果</title>
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; color: #333; line-height: 1.6; font-size: 15px; background: #fff; }
+                        /* 针对移动端优化 */
+                        @media (max-width: 600px) { body { padding: 15px; font-size: 14px; } }
+                    </style>
+                </head>
+                <body>
+                    ${contentHtml || '<div style="color:#999;text-align:center;padding:20px">暂无符合条件的邮件</div>'}
+                </body>
+                </html>`;
 
                 return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
@@ -258,7 +281,9 @@ export default {
         }
     }
 
-    // 4. 如果既不是 API，也不是现有文件，也不是正确的查询码 -> 返回错误提示
+    // ============================================================
+    // 5. 最终兜底：既不是API，也不是文件，也不是对的查询码 -> 报错
+    // ============================================================
     return new Response("查询码错！", { 
         status: 404, 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' } 
