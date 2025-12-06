@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微软邮箱管理 - Mail Console</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../assets/all.min.css" rel="stylesheet">
+    <link href="files/admin.css" rel="stylesheet">
+</head>
+<body>
+
+<div id="admin-container">
+    <div class="mobile-header">
+        <span class="fw-bold">Outlook Nodes</span>
+        <button class="btn btn-sm btn-light" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+    </div>
+    <div id="overlay" onclick="toggleSidebar()"></div>
+
+    <div class="admin-sidebar" id="sidebar">
+        <div class="sidebar-header"><i class="fas fa-mail-bulk"></i> 统一邮箱后台</div>
+        <ul class="list-unstyled">
+            <li><a class="nav-link" href="gmail.html"><i class="fab fa-google"></i> Gmail 邮箱管理</a></li>
+            <li><a class="nav-link" href="outlook.html"><i class="fab fa-microsoft"></i> 微软邮箱管理</a></li>
+            <li><a class="nav-link" href="receivers.html"><i class="fas fa-inbox"></i> 收件设置</a></li>
+            <li><a class="nav-link" href="logs.html"><i class="fas fa-history"></i> 发送记录</a></li>
+            <li><a class="nav-link" href="settings.html"><i class="fas fa-cog"></i> 系统设置</a></li>
+            <li><a class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> 退出登录</a></li>
+        </ul>
+    </div>
+
+    <div class="admin-content">
+        <div class="content-card">
+            <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+                <h3 class="m-0">微软(Outlook) 邮箱管理</h3>
+                <div>
+                    <button class="btn btn-sm btn-success me-1" onclick="showAddModal()"><i class="fas fa-plus"></i> 添加</button>
+                    <button class="btn btn-sm btn-primary" onclick="showBatchModal()"><i class="fas fa-file-import"></i> 批量</button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light"><tr><th>名称</th><th>API/Script URL</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody id="outlookTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">添加微软节点</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label>显示名称</label><input type="text" class="form-control" id="addName"></div><div class="mb-3"><label>API URL</label><input type="text" class="form-control" id="addUrl"></div><div class="mb-3"><label>Token/Key</label><input type="text" class="form-control" id="addToken" value=""></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="submitAdd()">保存</button></div></div></div></div>
+
+<div class="modal fade" id="batchModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">批量导入微软节点</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><textarea class="form-control" id="batchContent" rows="8" placeholder="名称,URL,Token (每行一条，支持逗号或竖线分隔)"></textarea></div><div class="modal-footer"><button class="btn btn-primary" onclick="submitBatch()">开始导入</button></div></div></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+<script src="files/admin.js"></script>
+<script>
+    checkAuth();
+    initSidebar();
+    
+    let addModal, batchModal;
+    window.onload = function() {
+        addModal = new bootstrap.Modal(document.getElementById('addModal'));
+        batchModal = new bootstrap.Modal(document.getElementById('batchModal'));
+        loadOutlooks();
+    }
+
+    // 假设后端接口为 /api/admin/outlooks，需在 _worker.js 中实现
+    async function loadOutlooks() {
+        const tbody = document.getElementById('outlookTableBody');
+        const list = await api('/api/admin/outlooks');
+        if (!list) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">后端接口未就绪 (/api/admin/outlooks)</td></tr>';
+            return;
+        }
+        tbody.innerHTML = list.map(item => `
+            <tr>
+                <td class="fw-bold">${item.name}</td>
+                <td class="small text-muted text-truncate" style="max-width: 150px;">${item.script_url}</td>
+                <td><div class="form-check form-switch"><input class="form-check-input" type="checkbox" ${item.is_active ? 'checked' : ''} onchange="toggleActive(${item.id}, this.checked)"></div></td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="delOutlook(${item.id})"><i class="fas fa-trash"></i></button></td>
+            </tr>
+        `).join('');
+    }
+
+    function showAddModal() { document.getElementById('addName').value = ''; document.getElementById('addUrl').value = ''; addModal.show(); }
+    async function submitAdd() {
+        await api('/api/admin/outlooks', 'POST', {
+            name: document.getElementById('addName').value,
+            url: document.getElementById('addUrl').value,
+            token: document.getElementById('addToken').value
+        });
+        addModal.hide(); loadOutlooks();
+    }
+    function showBatchModal() { document.getElementById('batchContent').value = ''; batchModal.show(); }
+    async function submitBatch() {
+        await api('/api/admin/outlooks/batch', 'POST', { content: document.getElementById('batchContent').value });
+        batchModal.hide(); loadOutlooks();
+    }
+    async function delOutlook(id) { if(confirm('确认删除?')) { await api(`/api/admin/outlooks/${id}`, 'DELETE'); loadOutlooks(); } }
+    async function toggleActive(id, status) { await api('/api/admin/outlooks/toggle', 'POST', { id, status: status ? 1 : 0 }); }
+</script>
+</body>
+</html>
