@@ -25,31 +25,8 @@ export default {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>查询结果</title>
             <style>
-                /* 在这里修改字体大小，所有页面（包括错误页）都会生效 */
-                .content-output { 
-                    font-size: 18px !important; 
-                    font-weight: 500; 
-                    font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; 
-                    word-wrap: break-word; 
-                    white-space: pre-wrap; 
-                    margin: 0; 
-                    padding: 15px 10px;
-                    border-bottom: 1px dashed #eee;
-                    line-height: 1.6;
-                }
-                
-                /* 错误信息的特定样式（居中） */
-                .error-box { 
-                    text-align: center; 
-                    border: none; 
-                    padding-top: 50px; 
-                    color: #666; 
-                }
-                
-                /* 移动端适配 */
-                @media(max-width: 670px){ 
-                    .content-output { font-size: 16px; } 
-                }
+.content-output {font-size: 15px; font-weight: 500; font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; word-wrap: break-word; white-space: pre-wrap; margin: 0; }
+@media (max-width: 670px) { .content-output { font-size: 13px; } }
             </style>
         </head>
         <body>
