@@ -132,7 +132,8 @@ export default {
       const stmt = env.XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
       const batch = [];
       for (let line of lines) {
-        const parts = line.split(',');
+        // 支持用 英文逗号(,) 中文逗号(，) 或 竖线(|) 分隔
+          const parts = line.split(/[|，,]/);
         if (parts.length >= 3) batch.push(stmt.bind(parts[0].trim(), parts[1].trim(), parts[2].trim()));
       }
       if(batch.length > 0) await env.XYRJ_GMAILAPI.batch(batch);
