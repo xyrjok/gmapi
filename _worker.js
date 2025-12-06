@@ -94,21 +94,32 @@ export default {
         return jsonResp({ success: true });
     }
 
-    // 收件规则管理
+    // 收件规则管理 (修改重点)
     if (path === '/api/admin/receivers' && request.method === 'GET') {
         const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules ORDER BY id DESC").run();
         return jsonResp(results);
     }
     if (path === '/api/admin/receivers' && request.method === 'POST') {
         const data = await request.json();
-        if (!data.access_code || !data.name) return jsonResp({ success: false, msg: "名称和查询码不能为空" }, 400);
+        
+        // 1. 严格校验必填项
+        if (!data.access_code || !data.name || !data.target_api_name) {
+             return jsonResp({ success: false, msg: "必填参数缺失 (名称/查询码/API节点)" }, 400);
+        }
+        
+        // 2. 默认值处理 (空值处理)
+        // 数量: 默认 5
+        const fetchCount = (data.fetch_count === undefined || data.fetch_count === null || data.fetch_count === '') ? 5 : parseInt(data.fetch_count);
+        // 有效期: 默认 0 (永久)
+        const validDays = (data.valid_days === undefined || data.valid_days === null || data.valid_days === '') ? 0 : parseInt(data.valid_days);
+
         try {
             if (data.id) {
-                await XYRJ_GMAILAPI.prepare("UPDATE receive_rules SET name=?, access_code=?, fetch_count=?, valid_days=?, match_sender=?, match_body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-                    .bind(data.name, data.access_code, data.fetch_count||10, data.valid_days||7, data.match_sender||'', data.match_body||'', data.id).run();
+                await XYRJ_GMAILAPI.prepare("UPDATE receive_rules SET name=?, access_code=?, fetch_count=?, valid_days=?, match_sender=?, match_body=?, target_api_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+                    .bind(data.name, data.access_code, fetchCount, validDays, data.match_sender||'', data.match_body||'', data.target_api_name, data.id).run();
             } else {
-                await XYRJ_GMAILAPI.prepare("INSERT INTO receive_rules (name, access_code, fetch_count, valid_days, match_sender, match_body) VALUES (?, ?, ?, ?, ?, ?)")
-                    .bind(data.name, data.access_code, data.fetch_count||10, data.valid_days||7, data.match_sender||'', data.match_body||'').run();
+                await XYRJ_GMAILAPI.prepare("INSERT INTO receive_rules (name, access_code, fetch_count, valid_days, match_sender, match_body, target_api_name) VALUES (?, ?, ?, ?, ?, ?, ?)")
+                    .bind(data.name, data.access_code, fetchCount, validDays, data.match_sender||'', data.match_body||'', data.target_api_name).run();
             }
             return jsonResp({ success: true });
         } catch(e) { return jsonResp({ success: false, msg: e.message }, 500); }
@@ -180,20 +191,30 @@ export default {
             // B. 只有查到了才拦截，否则放行给Pages处理404
             if (rule) {
                 try {
-                    // 检查有效期
-                    const startTime = new Date(rule.updated_at).getTime();
-                    const now = Date.now();
-                    const expireTime = startTime + (rule.valid_days * 86400000);
-                    
-                    if (now > expireTime) {
-                        return new Response(`查询码已过期 (Expired)\n过期时间: ${new Date(expireTime).toLocaleString()}`, { status: 403, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                    // --- 1. 有效期检查 (修改：valid_days 为 0 时代表无限期，跳过检查) ---
+                    let daysLeftStr = "永久";
+                    if (rule.valid_days > 0) {
+                        const startTime = new Date(rule.updated_at).getTime();
+                        const now = Date.now();
+                        const expireTime = startTime + (rule.valid_days * 86400000);
+                        
+                        if (now > expireTime) {
+                            return new Response(`查询码已过期 (Expired)\n过期时间: ${new Date(expireTime).toLocaleString()}`, { status: 403, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                        }
+                        daysLeftStr = ((expireTime - now) / 86400000).toFixed(1) + " 天";
                     }
+                    // ----------------------------------------------------------------
 
-                    // 找节点
-                    const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
-                    if (!apiNode) return new Response("系统暂无可用节点 (No Active Node)", { status: 503, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                    // --- 2. 找节点 (修改：严格匹配 target_api_name) ---
+                    // 规则：严格按照设置的 target_api_name 查找，找不到则报错
+                    const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
+                    
+                    if (!apiNode) {
+                        return new Response(`配置错误: 指定的 API 节点 [${rule.target_api_name}] 不存在或已停用。`, { status: 503, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                    }
+                    // ---------------------------------------------
 
-                    // 抓取
+                    // 抓取 (使用数据库里存的 fetch_count，默认是 5)
                     const fetchUrl = `${apiNode.script_url}?action=fetch&count=${rule.fetch_count}`;
                     const gasRes = await fetch(fetchUrl);
                     let emails = [];
@@ -202,6 +223,7 @@ export default {
                     // 过滤
                     const finalEmails = emails.filter(email => {
                         let matchS = true, matchB = true;
+                        // 留空则跳过检查，默认为 true
                         if (rule.match_sender && rule.match_sender.trim()) {
                             const keys = rule.match_sender.split(/[|,，]/).filter(k => k.trim());
                             matchS = keys.some(k => email.from.toLowerCase().includes(k.toLowerCase()));
@@ -214,8 +236,7 @@ export default {
                     });
 
                     // 返回 HTML
-                    const daysLeft = ((expireTime - now) / 86400000).toFixed(1);
-                    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>邮件收取结果</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;background:#f4f7f6;max-width:800px;margin:0 auto}.header{background:#fff;padding:15px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.05)}.email-card{background:#fff;padding:20px;margin-bottom:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.05);border-left:4px solid #409EFF}.meta{font-size:13px;color:#888;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap}.subject{font-weight:700;font-size:18px;color:#333;margin-bottom:12px;display:block}.body{font-size:15px;color:#444;white-space:pre-wrap;word-break:break-all;line-height:1.6}.empty{text-align:center;color:#999;padding:40px}</style></head><body><div class="header"><h3 style="margin:0 0 10px">📬 收件箱: ${rule.name}</h3><div style="font-size:13px;color:#666"><span>剩余有效期: <b>${daysLeft}</b> 天</span> | <span>匹配: ${finalEmails.length}/${emails.length}</span></div></div>${finalEmails.map(e => `<div class="email-card"><div class="meta"><span><i class="user"></i> ${e.from.replace(/</g,'&lt;')}</span><span>${new Date(e.date).toLocaleString()}</span></div><span class="subject">${e.subject||'(无主题)'}</span><div class="body">${e.body.replace(/</g,'&lt;')}</div></div>`).join('')}${finalEmails.length===0?'<div class="empty">📭 暂无符合条件的邮件</div>':''}</body></html>`;
+                    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>邮件收取结果</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;background:#f4f7f6;max-width:800px;margin:0 auto}.header{background:#fff;padding:15px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.05)}.email-card{background:#fff;padding:20px;margin-bottom:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.05);border-left:4px solid #409EFF}.meta{font-size:13px;color:#888;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap}.subject{font-weight:700;font-size:18px;color:#333;margin-bottom:12px;display:block}.body{font-size:15px;color:#444;white-space:pre-wrap;word-break:break-all;line-height:1.6}.empty{text-align:center;color:#999;padding:40px}</style></head><body><div class="header"><h3 style="margin:0 0 10px">📬 收件箱: ${rule.name}</h3><div style="font-size:13px;color:#666"><span>有效期: <b>${daysLeftStr}</b></span> | <span>节点: ${rule.target_api_name}</span> | <span>匹配: ${finalEmails.length} 封</span></div></div>${finalEmails.map(e => `<div class="email-card"><div class="meta"><span><i class="user"></i> ${e.from.replace(/</g,'&lt;')}</span><span>${new Date(e.date).toLocaleString()}</span></div><span class="subject">${e.subject||'(无主题)'}</span><div class="body">${e.body.replace(/</g,'&lt;')}</div></div>`).join('')}${finalEmails.length===0?'<div class="empty">📭 暂无符合条件的邮件</div>':''}</body></html>`;
 
                     return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
                 } catch (e) {
