@@ -6,8 +6,8 @@ export default {
     // ============================================================
     // 1. 基础配置 (从环境变量读取身份信息)
     // ============================================================
-    const ADMIN_USER = env.ADMIN_USERNAME || "admin";
-    const ADMIN_PASS = env.ADMIN_PASSWORD || "123456"; // 建议在CF后台设置
+    const ADMIN_USER = env.ADMIN_USERNAME || "";
+    const ADMIN_PASS = env.ADMIN_PASSWORD || ""; // 建议在CF后台设置
 
     // 辅助函数
     const jsonResp = (data, status = 200) => new Response(JSON.stringify(data), {
