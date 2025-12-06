@@ -248,7 +248,7 @@ export default {
                     const displayBody = (e.body || e.snippet || "").replace(/</g,'&lt;');
 
                     // 输出格式
-                    return `<div style="padding: 10px 0; border-bottom: 1px solid #eee;">${timeStr} | ${displayBody}</div>`;
+                    return `<div>${timeStr} | ${displayBody}</div>`;
                 }).join('');
 
                 // 极简 HTML 容器
