@@ -100,7 +100,7 @@
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>名称</th>
+                            <th>名称 / 绑定节点</th>
                             <th>查询码</th>
                             <th>抓取数 / 有效期</th>
                             <th>匹配规则</th>
@@ -152,38 +152,48 @@
 <div class="modal fade" id="recvModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">编辑收件规则</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">
     <form id="recvForm">
         <input type="hidden" id="recvId">
+        
+        <div class="mb-3">
+            <label class="form-label">指定 API 节点 <span class="text-danger">*</span></label>
+            <input class="form-control" list="apiOptions" id="recvTargetApi" placeholder="必填，请输入或选择 API 名称" required>
+            <datalist id="apiOptions"></datalist>
+            <div class="form-text small">必须指定一个现有的 API 节点名称。</div>
+        </div>
+        
         <div class="row mb-3">
             <div class="col-md-6">
-                <label class="form-label">规则名称</label>
+                <label class="form-label">规则名称 <span class="text-danger">*</span></label>
                 <input type="text" class="form-control" id="recvName" placeholder="如: 接收验证码" required>
             </div>
             <div class="col-md-6">
-                <label class="form-label">查询码 (URL访问凭证)</label>
+                <label class="form-label">查询码 <span class="text-danger">*</span></label>
                 <div class="input-group">
-                    <input type="text" class="form-control" id="recvCode" required>
+                    <input type="text" class="form-control" id="recvCode" placeholder="URL 访问凭证" required>
                     <button type="button" class="btn btn-outline-secondary" onclick="genRecvCode()">生成</button>
                 </div>
             </div>
         </div>
+        
         <div class="row mb-3">
             <div class="col-md-6">
                 <label class="form-label">单次抓取数量</label>
-                <input type="number" class="form-control" id="recvCount" value="10">
+                <input type="number" class="form-control" id="recvCount" placeholder="留空默认: 5">
             </div>
             <div class="col-md-6">
                 <label class="form-label">有效期 (天)</label>
-                <input type="number" class="form-control" id="recvDays" value="3">
-                <div class="form-text small">从保存时刻起算，归零后查询码失效。</div>
+                <input type="number" class="form-control" id="recvDays" placeholder="留空则永久有效">
             </div>
         </div>
+        
         <hr>
+        
         <div class="mb-3">
             <label class="form-label">发件人匹配 (可选)</label>
-            <input type="text" class="form-control" id="recvSender" placeholder="如: @google.com, service, 10086 (支持逗号/竖线分隔)">
+            <input type="text" class="form-control" id="recvSender" placeholder="留空则收取所有发件人">
         </div>
         <div class="mb-3">
             <label class="form-label">正文关键字匹配 (可选)</label>
-            <input type="text" class="form-control" id="recvBody" placeholder="如: 验证码, code, 激活 (支持逗号/竖线分隔)">
+            <input type="text" class="form-control" id="recvBody" placeholder="留空则收取所有内容">
         </div>
     </form>
 </div><div class="modal-footer"><button class="btn btn-primary" onclick="submitRecv()">保存配置</button></div></div></div></div>
@@ -296,7 +306,7 @@
     async function delGmail(id) { if(confirm('确认删除?')) { await api(`/api/admin/gmails/${id}`, 'DELETE'); loadGmails(); } }
     async function toggleActive(id, status) { await api('/api/admin/gmails/toggle', 'POST', { id, status: status ? 1 : 0 }); }
 
-    // --- 2. 收件规则逻辑 (核心修改) ---
+    // --- 2. 收件规则逻辑 (修改版) ---
     async function loadReceivers() {
         const tbody = document.getElementById('recvTableBody');
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">加载中...</td></tr>';
@@ -304,23 +314,35 @@
         if (!list) return;
         
         tbody.innerHTML = list.map(item => {
-            // 计算有效期剩余
-            const start = new Date(item.updated_at).getTime();
-            const expire = start + (item.valid_days * 86400000);
-            const daysLeft = ((expire - Date.now()) / 86400000).toFixed(1);
-            const isExpired = daysLeft <= 0;
-            const daysClass = isExpired ? 'text-danger fw-bold' : 'text-success';
+            // 计算有效期
+            const isInfinite = item.valid_days === 0;
+            let daysDisplay = '';
+            
+            if (isInfinite) {
+                daysDisplay = '<span class="text-success small fw-bold"><i class="fas fa-infinity"></i> 永久有效</span>';
+            } else {
+                const start = new Date(item.updated_at).getTime();
+                const expire = start + (item.valid_days * 86400000);
+                const daysLeft = ((expire - Date.now()) / 86400000).toFixed(1);
+                const isExpired = daysLeft <= 0;
+                daysDisplay = `<span class="small ${isExpired ? 'text-danger fw-bold' : 'text-success'}">剩余: ${daysLeft} 天</span>`;
+            }
 
             return `
-            <tr class="${isExpired ? 'table-secondary' : ''}">
-                <td>${item.name}</td>
+            <tr>
+                <td>
+                    <div class="fw-bold">${item.name}</div>
+                    ${item.target_api_name 
+                        ? `<span class="badge bg-primary bg-opacity-75 text-white small" style="font-weight:400"><i class="fas fa-server"></i> ${item.target_api_name}</span>` 
+                        : '<span class="badge bg-secondary small">随机节点</span>'}
+                </td>
                 <td>
                     <code class="user-select-all me-2">${item.access_code}</code>
                     <a href="/${item.access_code}" target="_blank" class="btn btn-sm btn-light border" title="打开链接"><i class="fas fa-external-link-alt small"></i></a>
                 </td>
                 <td>
-                    <div>抓取: ${item.fetch_count} 封</div>
-                    <div class="small ${daysClass}">剩余: ${daysLeft} 天</div>
+                    <div class="small">抓取: ${item.fetch_count} 封</div>
+                    <div>${daysDisplay}</div>
                 </td>
                 <td class="small text-muted">
                     <div>发件: ${item.match_sender || '-'}</div>
@@ -334,19 +356,47 @@
         }).join('');
     }
 
-    function showRecvModal() {
+    // 新增：加载 API 选项
+    async function loadApiOptions() {
+        const listObj = document.getElementById('apiOptions');
+        listObj.innerHTML = '';
+        const apis = await api('/api/admin/gmails');
+        if (apis) {
+            apis.forEach(node => {
+                if(node.is_active) {
+                    const opt = document.createElement('option');
+                    opt.value = node.name;
+                    listObj.appendChild(opt);
+                }
+            });
+        }
+    }
+
+    async function showRecvModal() {
         document.getElementById('recvForm').reset();
         document.getElementById('recvId').value = '';
+        
+        // 加载 API 列表
+        await loadApiOptions();
+
         genRecvCode();
         recvModal.show();
     }
 
-    function editRecv(item) {
+    async function editRecv(item) {
+        await loadApiOptions();
+
         document.getElementById('recvId').value = item.id;
         document.getElementById('recvName').value = item.name;
+        document.getElementById('recvTargetApi').value = item.target_api_name || ''; // 必填回显
         document.getElementById('recvCode').value = item.access_code;
-        document.getElementById('recvCount').value = item.fetch_count;
-        document.getElementById('recvDays').value = item.valid_days;
+        
+        // 抓取数量：显示数值，留给用户决定是否清空
+        document.getElementById('recvCount').value = item.fetch_count; 
+        
+        // 有效期：如果是 0，显示为空，代表永久
+        document.getElementById('recvDays').value = (item.valid_days === 0) ? '' : item.valid_days;
+        
         document.getElementById('recvSender').value = item.match_sender || '';
         document.getElementById('recvBody').value = item.match_body || '';
         recvModal.show();
@@ -360,15 +410,34 @@
     }
 
     async function submitRecv() {
+        // 1. 校验必填项
+        const targetApi = document.getElementById('recvTargetApi').value.trim();
+        const name = document.getElementById('recvName').value.trim();
+        const code = document.getElementById('recvCode').value.trim();
+
+        if (!targetApi || !name || !code) {
+            alert("请完善必填项：API名称、规则名称和查询码不能为空。");
+            return;
+        }
+
+        // 2. 处理选填项默认值
+        const countInput = document.getElementById('recvCount').value.trim();
+        const fetchCount = countInput === '' ? 5 : parseInt(countInput); // 留空 -> 5
+
+        const daysInput = document.getElementById('recvDays').value.trim();
+        const validDays = daysInput === '' ? 0 : parseInt(daysInput); // 留空 -> 0 (永久)
+
         const data = {
             id: document.getElementById('recvId').value,
-            name: document.getElementById('recvName').value,
-            access_code: document.getElementById('recvCode').value,
-            fetch_count: parseInt(document.getElementById('recvCount').value),
-            valid_days: parseInt(document.getElementById('recvDays').value),
-            match_sender: document.getElementById('recvSender').value,
-            match_body: document.getElementById('recvBody').value
+            name: name,
+            access_code: code,
+            target_api_name: targetApi,
+            fetch_count: fetchCount,
+            valid_days: validDays,
+            match_sender: document.getElementById('recvSender').value.trim(),
+            match_body: document.getElementById('recvBody').value.trim()
         };
+
         const res = await api('/api/admin/receivers', 'POST', data);
         if(res.success) { recvModal.hide(); loadReceivers(); } else alert('保存失败: ' + res.msg);
     }
