@@ -8,7 +8,7 @@ export default {
     const ADMIN_USER = env.ADMIN_USERNAME || "";
     const ADMIN_PASS = env.ADMIN_PASSWORD || ""; 
 
-    // 辅助函数
+    // 辅助函数: JSON 返回
     const jsonResp = (data, status = 200) => new Response(JSON.stringify(data), {
       status, headers: { 
         'Content-Type': 'application/json',
@@ -16,8 +16,51 @@ export default {
       }
     });
 
+    // === 新增辅助函数: 统一 HTML 返回 (包含字体和样式设置) ===
+    const htmlResp = (content, status = 200) => {
+        const html = `<!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>查询结果</title>
+            <style>
+                /* 在这里修改字体大小，所有页面（包括错误页）都会生效 */
+                .content-output { 
+                    font-size: 18px !important; 
+                    font-weight: 500; 
+                    font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; 
+                    word-wrap: break-word; 
+                    white-space: pre-wrap; 
+                    margin: 0; 
+                    padding: 15px 10px;
+                    border-bottom: 1px dashed #eee;
+                    line-height: 1.6;
+                }
+                
+                /* 错误信息的特定样式（居中） */
+                .error-box { 
+                    text-align: center; 
+                    border: none; 
+                    padding-top: 50px; 
+                    color: #666; 
+                }
+                
+                /* 移动端适配 */
+                @media(max-width: 670px){ 
+                    .content-output { font-size: 16px; } 
+                }
+            </style>
+        </head>
+        <body>
+            ${content}
+        </body>
+        </html>`;
+        return new Response(html, { status, headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    };
+
     // ============================================================
-    // 1. API 接口 (保持原有逻辑)
+    // 1. API 接口 (保持原有逻辑不变)
     // ============================================================
 
     if (path === '/api/public/channels' && request.method === 'GET') {
@@ -160,17 +203,11 @@ export default {
     }
 
     // ============================================================
-    // 2. 关键修改：静态资源策略 (修复跳转回首页的问题)
+    // 2. 静态资源策略
     // ============================================================
-    // 问题修复：Cloudflare 默认会把找不到的路径 (如 /ABC) 重写回 index.html。
-    // 我们必须手动过滤：只有请求的是"首页"、"后台"或"带后缀的文件"时，才允许加载静态资源。
-    // 其他情况（即查询码）一律跳过此步骤，直接进入数据库查询。
-    
     const isRoot = path === '/' || path === '/index.html';
-    // 简单判断：路径包含点 '.' (代表有后缀名，如 .js .css .png) 或者是 /admin 开头
     const looksLikeFile = path.includes('.') || path.startsWith('/admin');
 
-    // 只有当它是文件或者首页时，才去 Asset 里面找
     if (isRoot || looksLikeFile) {
         let assetResponse = await env.ASSETS.fetch(request);
         if (assetResponse.status >= 200 && assetResponse.status < 400) {
@@ -184,7 +221,6 @@ export default {
     const code = path.substring(1); // 去掉开头的 /
     
     if (code) {
-        // 只有当不是静态文件时，才去数据库查询
         const rule = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules WHERE access_code = ?").bind(code).first();
         
         if (rule) {
@@ -195,14 +231,15 @@ export default {
                     const now = Date.now();
                     const expireTime = startTime + (rule.valid_days * 86400000);
                     if (now > expireTime) {
-                        return new Response(`查询码已过期 (Expired)\n过期时间: ${new Date(expireTime).toLocaleString()}`, { status: 403, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                         // 过期也使用 htmlResp，只是文字不同
+                        return htmlResp(`<div class="content-output error-box">查询码已过期 (Expired)<br><small>过期时间: ${new Date(expireTime).toLocaleString()}</small></div>`, 403);
                     }
                 }
 
                 // 节点查找
                 const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
                 if (!apiNode) {
-                    return new Response(`配置错误: 指定的 API 节点 [${rule.target_api_name}] 不存在或已停用。`, { status: 503, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                    return htmlResp(`<div class="content-output error-box">配置错误: 指定的 API 节点 [${rule.target_api_name}] 不存在或已停用。</div>`, 503);
                 }
 
                 // 抓取邮件
@@ -210,7 +247,7 @@ export default {
                 const gasRes = await fetch(fetchUrl);
                 let emails = [];
                 try { emails = await gasRes.json(); } catch (err) { 
-                    return new Response("解析邮件数据失败。可能是 Token 错误或 GAS 脚本未返回 JSON。", { status: 502, headers:{'Content-Type':'text/plain;charset=utf-8'} }); 
+                    return htmlResp(`<div class="content-output error-box">解析邮件数据失败。<br>可能是 Token 错误或 GAS 脚本未返回 JSON。</div>`, 502); 
                 }
 
                 // 过滤
@@ -230,10 +267,9 @@ export default {
                 });
 
                 // ========================================================
-                // 4. 格式化输出
+                // 4. 格式化输出 (修改处)
                 // ========================================================
                 const contentHtml = finalEmails.map(e => {
-                    // 时间转换: UTC+8
                     const utcTime = new Date(e.date).getTime();
                     const cnTime = new Date(utcTime + 8 * 3600000); 
 
@@ -245,43 +281,29 @@ export default {
                     const s = String(cnTime.getUTCSeconds()).padStart(2, '0');
                     
                     const timeStr = `${y}-${m}-${d} ${h}:${min}:${s}`;
-                    const displayBody = (e.body || e.snippet || "").replace(/</g,'&lt;');
+                    
+                    // 修改：去除 [image:...] 并转义 HTML
+                    const displayBody = (e.body || e.snippet || "")
+                        .replace(/</g,'&lt;')
+                        .replace(/\[image:[^\]]*\]/g, ''); 
 
-                    // 输出格式
-                    return `<div>${timeStr} | ${displayBody}</div>`;
+                    // 注意：这里应用 content-output 样式类
+                    return `<div class="content-output">${timeStr} | ${displayBody}</div>`;
                 }).join('');
 
-                // 极简 HTML 容器
-                let html = `<!DOCTYPE html>
-                <html lang="zh-CN">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>查询结果</title>
-                    <style>
-.content-output{font-size:15px !important; font-weight:500; font-family:'Microsoft YaHei Bold','Microsoft YaHei',sans-serif; word-wrap:break-word; white-space:pre-wrap; margin: 0;}
-@media(max-width: 670px){.content-output {font-size: 13px; }}
-                    </style>
-                </head>
-                <body>
-                    ${contentHtml || '<div style="color:#999;text-align:center;padding:20px">暂无符合条件的邮件</div>'}
-                </body>
-                </html>`;
-
-                return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+                // 使用 htmlResp 返回，如果为空则显示提示
+                return htmlResp(contentHtml || '<div class="content-output error-box">暂无符合条件的邮件</div>');
 
             } catch (e) {
-                return new Response("系统错误: " + e.message, { status: 500, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                // 系统错误也使用统一样式
+                return htmlResp(`<div class="content-output error-box">系统错误: ${e.message}</div>`, 500);
             }
         }
     }
 
     // ============================================================
-    // 5. 最终兜底
+    // 5. 最终兜底 (修改处)
     // ============================================================
-    return new Response("查询码错！", { 
-        status: 404, 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' } 
-    });
+    return htmlResp(`<div class="content-output error-box">查询码错！</div>`, 404);
   }
 };
