@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>联系我们</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://bk.xyrj.dpdns.org/themes/xyrj/files/fonts/fontawesome5pro-all.min.css" rel="stylesheet">
+    <style>
+        body { background: #f4f7f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .hero-section { background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); color: white; padding: 80px 0 60px; text-align: center; margin-bottom: -50px; }
+        .main-card { background: #fff; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 40px; margin-bottom: 40px; position: relative; z-index: 10; }
+        .btn-xyrj { background-color: #409EFF; color: #fff; border: none; padding: 10px 30px; border-radius: 50px; font-weight: 500; transition: 0.3s; }
+        .btn-xyrj:hover { background-color: #3390ff; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(64, 158, 255, 0.3); }
+        .footer { text-align: center; color: #999; font-size: 13px; margin-bottom: 20px; }
+        .footer a { color: #999; text-decoration: none; }
+    </style>
+</head>
+<body>
+
+    <div class="hero-section">
+        <div class="container">
+            <h1 class="fw-bold mb-3"><i class="far fa-envelope-open-text"></i> 联系我们</h1>
+            <p class="opacity-75">请填写下方表单，我们将尽快回复。</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="main-card">
+                    <form id="contactForm">
+                        <div class="mb-4">
+                            <label class="form-label text-muted small fw-bold">联系部门/渠道</label>
+                            <select class="form-select bg-light" id="channelSelect">
+                                <option value="" selected>-- 智能分配 (默认) --</option>
+                                </select>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label text-muted small fw-bold">您的称呼</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0"><i class="far fa-user"></i></span>
+                                    <input type="text" class="form-control bg-light border-start-0" id="name" placeholder="怎么称呼您？" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label text-muted small fw-bold">联系方式</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0"><i class="far fa-at"></i></span>
+                                    <input type="text" class="form-control bg-light border-start-0" id="contact" placeholder="邮箱或微信号" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label text-muted small fw-bold">留言内容</label>
+                            <textarea class="form-control bg-light" id="message" rows="5" placeholder="请输入您想说的话..." required></textarea>
+                        </div>
+
+                        <div class="text-center">
+                            <button type="submit" class="btn-xyrj" id="submitBtn">
+                                <i class="fas fa-paper-plane me-2"></i> 发送留言
+                            </button>
+                        </div>
+                    </form>
+                    <div id="alertBox" class="mt-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        © 2025 Gmail API Service | <a href="/admin" target="_blank"><i class="fas fa-user-shield"></i> 管理员入口</a>
+    </div>
+
+    <script>
+        // 页面加载时，获取后台配置的渠道列表
+        window.onload = async function() {
+            try {
+                const res = await fetch('/api/public/channels');
+                const channels = await res.json();
+                const select = document.getElementById('channelSelect');
+                
+                channels.forEach(ch => {
+                    const opt = document.createElement('option');
+                    opt.value = ch.id;
+                    opt.text = ch.name; // 显示后台设置的“显示名称”
+                    select.appendChild(opt);
+                });
+            } catch(e) { console.error('无法加载渠道列表'); }
+        }
+
+        // 提交表单
+        document.getElementById('contactForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const box = document.getElementById('alertBox');
+            
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发送中...';
+            box.innerHTML = '';
+
+            const data = {
+                channel_id: document.getElementById('channelSelect').value, // 选中的渠道ID
+                name: document.getElementById('name').value,
+                contact: document.getElementById('contact').value,
+                message: document.getElementById('message').value
+            };
+
+            try {
+                const res = await fetch('/api/contact', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+
+                if (result.success) {
+                    box.innerHTML = `<div class="alert alert-success text-center border-0 bg-success bg-opacity-10 text-success"><i class="fas fa-check-circle"></i> 发送成功！</div>`;
+                    document.getElementById('contactForm').reset();
+                } else {
+                    box.innerHTML = `<div class="alert alert-danger text-center border-0 bg-danger bg-opacity-10 text-danger">${result.msg}</div>`;
+                }
+            } catch (err) {
+                box.innerHTML = `<div class="alert alert-danger text-center border-0 bg-danger bg-opacity-10 text-danger">网络错误</div>`;
+            }
+            btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i> 发送留言';
+        });
+    </script>
+</body>
+</html>
