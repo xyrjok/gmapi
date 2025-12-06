@@ -160,7 +160,7 @@ export default {
     }
 
     // 页面路由
-    if (path === '/admin') return env.ASSETS.fetch(new Request(new URL('/admin.html', request.url), request));
+    // 修复：删除了之前导致死循环的 /admin 手动判断
     return env.ASSETS.fetch(request);
   }
 };
