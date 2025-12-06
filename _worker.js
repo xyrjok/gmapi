@@ -259,8 +259,8 @@ export default {
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <title>查询结果</title>
                     <style>
-                        .content-output {font-size: 15px; font-weight: 500; font-family: 'Microsoft YaHei Bold', 'Microsoft YaHei', sans-serif; word-wrap: break-word; white-space: pre-wrap; margin: 0; }
-@media (max-width: 670px) { .content-output { font-size: 13px; } }
+.content-output{font-size:15px !important; font-weight:500; font-family:'Microsoft YaHei Bold','Microsoft YaHei',sans-serif; word-wrap:break-word; white-space:pre-wrap; margin: 0;}
+@media(max-width: 670px){.content-output {font-size: 13px; }}
                     </style>
                 </head>
                 <body>
