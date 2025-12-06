@@ -3,11 +3,10 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     
-    // ============================================================
-    // 1. 基础配置 (从环境变量读取身份信息)
-    // ============================================================
+    // 0. 获取数据库和环境变量
+    const XYRJ_GMAILAPI = env.XYRJ_GMAILAPI;
     const ADMIN_USER = env.ADMIN_USERNAME || "";
-    const ADMIN_PASS = env.ADMIN_PASSWORD || ""; // 建议在CF后台设置
+    const ADMIN_PASS = env.ADMIN_PASSWORD || ""; 
 
     // 辅助函数
     const jsonResp = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -18,55 +17,47 @@ export default {
     });
 
     // ============================================================
-    // 🌍 公开 API
+    // 1. 公开 API (发信相关)
     // ============================================================
 
-    // 1. 获取公开渠道列表
+    // 获取公开渠道
     if (path === '/api/public/channels' && request.method === 'GET') {
-      const { results } = await env.XYRJ_GMAILAPI.prepare(
-        "SELECT id, name FROM gmail_apis WHERE is_active = 1 ORDER BY id ASC"
-      ).run();
-      return jsonResp(results);
+      try {
+        const { results } = await XYRJ_GMAILAPI.prepare("SELECT id, name FROM gmail_apis WHERE is_active = 1 ORDER BY id ASC").run();
+        return jsonResp(results);
+      } catch (e) {
+        return jsonResp({ error: "Database Error", details: e.message }, 500);
+      }
     }
 
-    // 2. 游客发送留言 (核心修改：从数据库读取接收邮箱)
+    // 发送留言
     if (path === '/api/contact' && request.method === 'POST') {
       try {
         const { name, contact, message, channel_id } = await request.json();
         
-        // A. 获取接收邮箱 (优先读数据库，没有则读环境变量)
-        let targetEmail = env.ADMIN_EMAIL; // 环境变量兜底
+        let targetEmail = env.ADMIN_EMAIL; 
         try {
-            const setting = await env.XYRJ_GMAILAPI.prepare("SELECT value FROM settings WHERE key = 'admin_email'").first();
+            const setting = await XYRJ_GMAILAPI.prepare("SELECT value FROM settings WHERE key = 'admin_email'").first();
             if (setting && setting.value) targetEmail = setting.value;
         } catch(e) { console.error("读取数据库配置失败", e); }
 
         if (!targetEmail) return jsonResp({ success: false, msg: "管理员未设置接收邮箱" }, 500);
 
-        // B. 确定发送渠道
         let apiConfig;
         if (channel_id) {
-            apiConfig = await env.XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE id = ? AND is_active = 1").bind(channel_id).first();
+            apiConfig = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE id = ? AND is_active = 1").bind(channel_id).first();
         } else {
-            apiConfig = await env.XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
+            apiConfig = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
         }
 
         if (!apiConfig) return jsonResp({ success: false, msg: "暂无可用发送渠道" }, 503);
 
-        // C. 发送
         const subject = `[${apiConfig.name}] 来自 ${name} 的消息`;
         const body = `姓名: ${name}\n联系方式: ${contact}\n渠道: ${apiConfig.name}\n\n留言内容:\n${message}`;
-
-        const params = new URLSearchParams({
-          action: 'send', token: apiConfig.token, 
-          to: targetEmail, subject, body
-        });
+        const params = new URLSearchParams({ action: 'send', token: apiConfig.token, to: targetEmail, subject, body });
 
         await fetch(`${apiConfig.script_url}?${params}`);
-        
-        // D. 记日志
-        await env.XYRJ_GMAILAPI.prepare("INSERT INTO email_logs (recipient, subject, status) VALUES (?, ?, ?)")
-          .bind("ADMIN", subject, `成功(${apiConfig.name})`).run();
+        await XYRJ_GMAILAPI.prepare("INSERT INTO email_logs (recipient, subject, status) VALUES (?, ?, ?)").bind("ADMIN", subject, `成功(${apiConfig.name})`).run();
 
         return jsonResp({ success: true, msg: "发送成功" });
       } catch (e) {
@@ -75,16 +66,13 @@ export default {
     }
 
     // ============================================================
-    // 🔐 管理员 API (需要 Token)
+    // 2. 🔐 管理员 API
     // ============================================================
 
-    // 登录 (修改：验证用户名和密码)
+    // 登录
     if (path === '/api/login' && request.method === 'POST') {
       const { username, password } = await request.json();
-      // 只有用户名和密码都对，才返回 Token (Token 直接用密码本身即可，或者你可以生成一个随机数存KV)
-      if (username === ADMIN_USER && password === ADMIN_PASS) {
-          return jsonResp({ success: true, token: ADMIN_PASS });
-      }
+      if (username === ADMIN_USER && password === ADMIN_PASS) return jsonResp({ success: true, token: ADMIN_PASS });
       return jsonResp({ success: false, msg: "用户名或密码错误" }, 401);
     }
 
@@ -94,74 +82,150 @@ export default {
       if (authHeader !== ADMIN_PASS) return jsonResp({ success: false, msg: "无权访问" }, 401);
     }
 
-    // --- 新增：系统配置管理 (读写 settings 表) ---
-    
-    // 获取配置
+    // 系统配置
     if (path === '/api/admin/config' && request.method === 'GET') {
-        const { results } = await env.XYRJ_GMAILAPI.prepare("SELECT * FROM settings").run();
-        // 转换成对象格式 { admin_email: "..." }
-        const config = {};
-        results.forEach(r => config[r.key] = r.value);
+        const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM settings").run();
+        const config = {}; results.forEach(r => config[r.key] = r.value);
         return jsonResp(config);
     }
-
-    // 保存配置
     if (path === '/api/admin/config' && request.method === 'POST') {
         const { admin_email } = await request.json();
-        // 使用 UPSERT 语法 (如果有则更新，无则插入)
-        await env.XYRJ_GMAILAPI.prepare(`
-            INSERT INTO settings (key, value) VALUES ('admin_email', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        `).bind(admin_email).run();
+        await XYRJ_GMAILAPI.prepare("INSERT INTO settings (key, value) VALUES ('admin_email', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(admin_email).run();
         return jsonResp({ success: true });
     }
 
-    // --- Gmail API 管理 (保持不变) ---
+    // 收件规则管理
+    if (path === '/api/admin/receivers' && request.method === 'GET') {
+        const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules ORDER BY id DESC").run();
+        return jsonResp(results);
+    }
+    if (path === '/api/admin/receivers' && request.method === 'POST') {
+        const data = await request.json();
+        if (!data.access_code || !data.name) return jsonResp({ success: false, msg: "名称和查询码不能为空" }, 400);
+        try {
+            if (data.id) {
+                await XYRJ_GMAILAPI.prepare("UPDATE receive_rules SET name=?, access_code=?, fetch_count=?, valid_days=?, match_sender=?, match_body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+                    .bind(data.name, data.access_code, data.fetch_count||10, data.valid_days||7, data.match_sender||'', data.match_body||'', data.id).run();
+            } else {
+                await XYRJ_GMAILAPI.prepare("INSERT INTO receive_rules (name, access_code, fetch_count, valid_days, match_sender, match_body) VALUES (?, ?, ?, ?, ?, ?)")
+                    .bind(data.name, data.access_code, data.fetch_count||10, data.valid_days||7, data.match_sender||'', data.match_body||'').run();
+            }
+            return jsonResp({ success: true });
+        } catch(e) { return jsonResp({ success: false, msg: e.message }, 500); }
+    }
+    if (path.startsWith('/api/admin/receivers/') && request.method === 'DELETE') {
+        const id = path.split('/').pop();
+        await XYRJ_GMAILAPI.prepare("DELETE FROM receive_rules WHERE id = ?").bind(id).run();
+        return jsonResp({ success: true });
+    }
+
+    // Gmail 节点管理
     if (path === '/api/admin/gmails' && request.method === 'GET') {
-      const { results } = await env.XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
+      const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
       return jsonResp(results);
     }
     if (path === '/api/admin/gmails' && request.method === 'POST') {
       const { name, url, token } = await request.json();
-      await env.XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)").bind(name, url, token).run();
+      await XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)").bind(name, url, token).run();
       return jsonResp({ success: true });
     }
     if (path === '/api/admin/gmails/batch' && request.method === 'POST') {
       const { content } = await request.json(); 
       const lines = content.split('\n');
-      const stmt = env.XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
+      const stmt = XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
       const batch = [];
       for (let line of lines) {
-        // 支持用 英文逗号(,) 中文逗号(，) 或 竖线(|) 分隔
-          const parts = line.split(/[|，,]/);
+        const parts = line.split(/[|,，]/); 
         if (parts.length >= 3) batch.push(stmt.bind(parts[0].trim(), parts[1].trim(), parts[2].trim()));
       }
-      if(batch.length > 0) await env.XYRJ_GMAILAPI.batch(batch);
+      if(batch.length > 0) await XYRJ_GMAILAPI.batch(batch);
       return jsonResp({ success: true });
     }
     if (path.startsWith('/api/admin/gmails/') && request.method === 'DELETE') {
       const id = path.split('/').pop();
-      await env.XYRJ_GMAILAPI.prepare("DELETE FROM gmail_apis WHERE id = ?").bind(id).run();
+      await XYRJ_GMAILAPI.prepare("DELETE FROM gmail_apis WHERE id = ?").bind(id).run();
       return jsonResp({ success: true });
     }
     if (path === '/api/admin/gmails/toggle' && request.method === 'POST') {
         const { id, status } = await request.json();
-        await env.XYRJ_GMAILAPI.prepare("UPDATE gmail_apis SET is_active = ? WHERE id = ?").bind(status, id).run();
+        await XYRJ_GMAILAPI.prepare("UPDATE gmail_apis SET is_active = ? WHERE id = ?").bind(status, id).run();
         return jsonResp({ success: true });
     }
 
-    // --- 日志管理 (保持不变) ---
+    // 日志管理
     if (path === '/api/admin/logs' && request.method === 'GET') {
-      const { results } = await env.XYRJ_GMAILAPI.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
+      const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
       return jsonResp(results);
     }
     if (path === '/api/admin/logs/clear' && request.method === 'POST') {
-        await env.XYRJ_GMAILAPI.prepare("DELETE FROM email_logs").run();
+        await XYRJ_GMAILAPI.prepare("DELETE FROM email_logs").run();
         return jsonResp({ success: true });
     }
 
-    // 页面路由
-    // 修复：删除了之前导致死循环的 /admin 手动判断
+    // ============================================================
+    // 3. 【智能拦截】 域名/查询码 收取邮件
+    // ============================================================
+    const isApi = path.startsWith('/api/');
+    // 排除系统文件和带后缀的静态资源(如 .js .css .png)
+    const isSystemFile = path === '/' || path === '/index.html' || path === '/email.html' || path === '/admin' || path === '/admin.html';
+    const isStaticAsset = path.includes('.'); 
+
+    if (!isApi && !isSystemFile && !isStaticAsset) {
+        const code = path.substring(1); // 去掉开头的 /
+        
+        if (code) {
+            // A. 查库
+            const rule = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules WHERE access_code = ?").bind(code).first();
+            
+            // B. 只有查到了才拦截，否则放行给Pages处理404
+            if (rule) {
+                try {
+                    // 检查有效期
+                    const startTime = new Date(rule.updated_at).getTime();
+                    const now = Date.now();
+                    const expireTime = startTime + (rule.valid_days * 86400000);
+                    
+                    if (now > expireTime) {
+                        return new Response(`查询码已过期 (Expired)\n过期时间: ${new Date(expireTime).toLocaleString()}`, { status: 403, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                    }
+
+                    // 找节点
+                    const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
+                    if (!apiNode) return new Response("系统暂无可用节点 (No Active Node)", { status: 503, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+
+                    // 抓取
+                    const fetchUrl = `${apiNode.script_url}?action=fetch&count=${rule.fetch_count}`;
+                    const gasRes = await fetch(fetchUrl);
+                    let emails = [];
+                    try { emails = await gasRes.json(); } catch (err) { return new Response("解析邮件数据失败", { status: 502, headers:{'Content-Type':'text/plain;charset=utf-8'} }); }
+
+                    // 过滤
+                    const finalEmails = emails.filter(email => {
+                        let matchS = true, matchB = true;
+                        if (rule.match_sender && rule.match_sender.trim()) {
+                            const keys = rule.match_sender.split(/[|,，]/).filter(k => k.trim());
+                            matchS = keys.some(k => email.from.toLowerCase().includes(k.toLowerCase()));
+                        }
+                        if (rule.match_body && rule.match_body.trim()) {
+                            const keys = rule.match_body.split(/[|,，]/).filter(k => k.trim());
+                            matchB = keys.some(k => email.body.toLowerCase().includes(k.toLowerCase()));
+                        }
+                        return matchS && matchB;
+                    });
+
+                    // 返回 HTML
+                    const daysLeft = ((expireTime - now) / 86400000).toFixed(1);
+                    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>邮件收取结果</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;background:#f4f7f6;max-width:800px;margin:0 auto}.header{background:#fff;padding:15px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.05)}.email-card{background:#fff;padding:20px;margin-bottom:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.05);border-left:4px solid #409EFF}.meta{font-size:13px;color:#888;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap}.subject{font-weight:700;font-size:18px;color:#333;margin-bottom:12px;display:block}.body{font-size:15px;color:#444;white-space:pre-wrap;word-break:break-all;line-height:1.6}.empty{text-align:center;color:#999;padding:40px}</style></head><body><div class="header"><h3 style="margin:0 0 10px">📬 收件箱: ${rule.name}</h3><div style="font-size:13px;color:#666"><span>剩余有效期: <b>${daysLeft}</b> 天</span> | <span>匹配: ${finalEmails.length}/${emails.length}</span></div></div>${finalEmails.map(e => `<div class="email-card"><div class="meta"><span><i class="user"></i> ${e.from.replace(/</g,'&lt;')}</span><span>${new Date(e.date).toLocaleString()}</span></div><span class="subject">${e.subject||'(无主题)'}</span><div class="body">${e.body.replace(/</g,'&lt;')}</div></div>`).join('')}${finalEmails.length===0?'<div class="empty">📭 暂无符合条件的邮件</div>':''}</body></html>`;
+
+                    return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+                } catch (e) {
+                    return new Response("系统错误: " + e.message, { status: 500, headers:{'Content-Type':'text/plain;charset=utf-8'} });
+                }
+            }
+        }
+    }
+
+    // 默认静态页面处理
     return env.ASSETS.fetch(request);
   }
 };
