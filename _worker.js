@@ -259,7 +259,7 @@ export default {
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <title>查询结果</title>
                     <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; color: #333; line-height: 1.6; font-size: 15px; background: #fff; }
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;color: #333; line-height: 1.6; font-size: 15px; background: #fff; }
                         @media (max-width: 600px) { body { padding: 15px; font-size: 14px; } }
                     </style>
                 </head>
