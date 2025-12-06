@@ -41,6 +41,7 @@
     <div class="login-container">
         <div class="login-logo"><i class="fad fa-mail-bulk text-primary"></i> Gmail 控制台</div>
         <form id="login-form">
+            <input type="text" id="login-username" class="form-control mb-3" placeholder="管理员用户名" required>
             <input type="password" id="login-password" class="form-control mb-3" placeholder="管理员密码" required>
             <button type="submit" class="btn-xyrj">登 录</button>
         </form>
@@ -59,6 +60,7 @@
         <ul style="padding:0; list-style:none;">
             <li><a class="nav-link active" onclick="switchTab('gmails')"><i class="fas fa-server"></i> API 节点管理</a></li>
             <li><a class="nav-link" onclick="switchTab('logs')"><i class="fas fa-history"></i> 发送记录</a></li>
+            <li><a class="nav-link" onclick="switchTab('settings')"><i class="fas fa-cog"></i> 系统设置</a></li>
             <li><a class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> 退出</a></li>
         </ul>
     </div>
@@ -70,15 +72,12 @@
                 <div>
                     <button class="btn btn-sm btn-success me-2" onclick="showAddModal()"><i class="fas fa-plus"></i> 添加</button>
                     <button class="btn btn-sm btn-primary me-2" onclick="showBatchModal()"><i class="fas fa-layer-group"></i> 批量导入</button>
-                    <button class="btn btn-sm btn-danger" onclick="batchDelete()"><i class="fas fa-trash"></i> 批量删除</button>
                 </div>
             </div>
-            
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th width="40"><input type="checkbox" id="checkAll" onclick="toggleAllChecks()"></th>
                             <th>ID</th>
                             <th>显示名称</th>
                             <th>Script URL (部分)</th>
@@ -95,7 +94,7 @@
             <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
                 <h3 class="m-0"><i class="fas fa-list-ul"></i> 发送记录</h3>
                 <div>
-                    <button class="btn btn-sm btn-danger me-2" onclick="clearLogs()"><i class="fas fa-trash-alt"></i> 清空日志</button>
+                    <button class="btn btn-sm btn-danger me-2" onclick="clearLogs()"><i class="fas fa-trash-alt"></i> 清空</button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()"><i class="fas fa-sync-alt"></i> 刷新</button>
                 </div>
             </div>
@@ -104,35 +103,32 @@
                 <tbody id="logTableBody"></tbody>
             </table>
         </div>
-    </div>
-</div>
 
-<div class="modal fade" id="addModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">添加 API 节点</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body">
-                <div class="mb-3"><label>显示名称</label><input type="text" class="form-control" id="addName" placeholder="例如：商务合作"></div>
-                <div class="mb-3"><label>Script URL</label><input type="text" class="form-control" id="addUrl" placeholder="https://script.google.com/..."></div>
-                <div class="mb-3"><label>Token (密码)</label><input type="text" class="form-control" id="addToken" value="123456"></div>
+        <div id="tab-settings" class="content-card">
+            <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+                <h3 class="m-0"><i class="fas fa-cog"></i> 系统设置</h3>
             </div>
-            <div class="modal-footer"><button class="btn btn-primary" onclick="submitAdd()">保存</button></div>
+            <div class="row">
+                <div class="col-md-6">
+                    <form id="settingsForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">游客留言接收邮箱</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                                <input type="email" class="form-control" id="setting_admin_email" placeholder="example@gmail.com" required>
+                            </div>
+                            <div class="form-text text-muted">前台游客提交的留言将发送到此邮箱。</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> 保存设置</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="batchModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">批量导入 API</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body">
-                <p class="text-muted small">请按格式输入：<code>名称,URL,Token</code> (每行一条)</p>
-                <textarea class="form-control" id="batchContent" rows="10" placeholder="商务合作,https://script.google.com/...,123456&#10;技术支持,https://script.google.com/...,654321"></textarea>
-            </div>
-            <div class="modal-footer"><button class="btn btn-primary" onclick="submitBatch()">开始导入</button></div>
-        </div>
-    </div>
-</div>
+<div class="modal fade" id="addModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">添加 API 节点</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label>显示名称</label><input type="text" class="form-control" id="addName"></div><div class="mb-3"><label>Script URL</label><input type="text" class="form-control" id="addUrl"></div><div class="mb-3"><label>Token</label><input type="text" class="form-control" id="addToken" value="123456"></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="submitAdd()">保存</button></div></div></div></div>
+<div class="modal fade" id="batchModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">批量导入</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><textarea class="form-control" id="batchContent" rows="10" placeholder="名称,URL,Token (每行一条)"></textarea></div><div class="modal-footer"><button class="btn btn-primary" onclick="submitBatch()">导入</button></div></div></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -140,14 +136,12 @@
     const adminContainer = document.getElementById('admin-container');
     let addModal, batchModal;
 
-    // 初始化
     window.onload = function() {
         addModal = new bootstrap.Modal(document.getElementById('addModal'));
         batchModal = new bootstrap.Modal(document.getElementById('batchModal'));
         if (sessionStorage.getItem('admin_token')) showAdmin();
     }
 
-    // 基础 API 封装
     async function api(url, method = 'GET', data = null) {
         const headers = { 'Content-Type': 'application/json', 'Authorization': sessionStorage.getItem('admin_token') };
         const opts = { method, headers };
@@ -157,15 +151,30 @@
         return res.json();
     }
 
-    // 登录 & 路由
-    function showAdmin() { loginWrapper.style.display = 'none'; adminContainer.style.display = 'flex'; loadGmails(); }
+    function showAdmin() { 
+        loginWrapper.style.display = 'none'; 
+        adminContainer.style.display = 'flex'; 
+        loadGmails(); 
+    }
     function logout() { sessionStorage.removeItem('admin_token'); location.reload(); }
+
+    // 登录逻辑 (修改：发送用户名和密码)
     document.getElementById('login-form').onsubmit = async (e) => {
         e.preventDefault();
+        const user = document.getElementById('login-username').value;
         const pass = document.getElementById('login-password').value;
-        const res = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ password: pass }) });
-        const data = await res.json();
-        if (data.success) { sessionStorage.setItem('admin_token', data.token); showAdmin(); } else alert(data.msg);
+        try {
+            const res = await fetch('/api/login', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass }) 
+            });
+            const data = await res.json();
+            if (data.success) { 
+                sessionStorage.setItem('admin_token', data.token); 
+                showAdmin(); 
+            } else { alert(data.msg); }
+        } catch (err) { alert('网络错误'); }
     };
 
     function switchTab(name) {
@@ -173,77 +182,47 @@
         document.getElementById('tab-' + name).classList.add('active');
         document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
         event.currentTarget.classList.add('active');
+        
         if (name === 'gmails') loadGmails();
         if (name === 'logs') loadLogs();
+        if (name === 'settings') loadSettings(); // 加载设置
+        
         if(window.innerWidth <= 768) toggleSidebar();
     }
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); document.getElementById('overlay').classList.toggle('show'); }
 
-    // --- Gmail API 管理逻辑 ---
+    // --- Gmail API 管理 ---
     async function loadGmails() {
         const tbody = document.getElementById('gmailTableBody');
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center">加载中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">加载中...</td></tr>';
         const list = await api('/api/admin/gmails');
         if (!list) return;
-        
         tbody.innerHTML = list.map(item => `
             <tr>
-                <td><input type="checkbox" class="chk-item" value="${item.id}"></td>
                 <td>${item.id}</td>
                 <td class="fw-bold text-primary">${item.name}</td>
                 <td class="small text-muted text-truncate" style="max-width: 200px;">${item.script_url}</td>
-                <td>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" ${item.is_active ? 'checked' : ''} onchange="toggleActive(${item.id}, this.checked)">
-                    </div>
-                </td>
+                <td><div class="form-check form-switch"><input class="form-check-input" type="checkbox" ${item.is_active ? 'checked' : ''} onchange="toggleActive(${item.id}, this.checked)"></div></td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="delGmail(${item.id})"><i class="fas fa-trash"></i></button></td>
             </tr>
         `).join('');
     }
-
     function showAddModal() { document.getElementById('addName').value = ''; document.getElementById('addUrl').value = ''; addModal.show(); }
     async function submitAdd() {
-        const data = {
+        const res = await api('/api/admin/gmails', 'POST', {
             name: document.getElementById('addName').value,
             url: document.getElementById('addUrl').value,
             token: document.getElementById('addToken').value
-        };
-        const res = await api('/api/admin/gmails', 'POST', data);
+        });
         if (res.success) { addModal.hide(); loadGmails(); }
     }
-
     function showBatchModal() { document.getElementById('batchContent').value = ''; batchModal.show(); }
     async function submitBatch() {
-        const content = document.getElementById('batchContent').value;
-        const res = await api('/api/admin/gmails/batch', 'POST', { content });
-        if (res.success) { alert(`成功导入 ${res.count} 条`); batchModal.hide(); loadGmails(); }
+        const res = await api('/api/admin/gmails/batch', 'POST', { content: document.getElementById('batchContent').value });
+        if (res.success) { batchModal.hide(); loadGmails(); }
     }
-
-    async function delGmail(id) {
-        if (!confirm('确认删除?')) return;
-        await api(`/api/admin/gmails/${id}`, 'DELETE');
-        loadGmails();
-    }
-
-    async function toggleActive(id, status) {
-        await api('/api/admin/gmails/toggle', 'POST', { id, status: status ? 1 : 0 });
-    }
-
-    function toggleAllChecks() {
-        const checked = document.getElementById('checkAll').checked;
-        document.querySelectorAll('.chk-item').forEach(el => el.checked = checked);
-    }
-
-    async function batchDelete() {
-        const ids = Array.from(document.querySelectorAll('.chk-item:checked')).map(el => el.value);
-        if (ids.length === 0) return alert('请先选择');
-        if (!confirm(`确定删除选中的 ${ids.length} 个节点?`)) return;
-        
-        await api('/api/admin/gmails/batch-delete', 'POST', { ids });
-        loadGmails();
-        document.getElementById('checkAll').checked = false;
-    }
+    async function delGmail(id) { if(confirm('确认删除?')) { await api(`/api/admin/gmails/${id}`, 'DELETE'); loadGmails(); } }
+    async function toggleActive(id, status) { await api('/api/admin/gmails/toggle', 'POST', { id, status: status ? 1 : 0 }); }
 
     // --- 日志逻辑 ---
     async function loadLogs() {
@@ -252,9 +231,23 @@
         if (!logs) return;
         tbody.innerHTML = logs.map(l => `<tr><td>${l.id}</td><td>${new Date(l.created_at).toLocaleString()}</td><td>${l.subject}</td><td>${l.status}</td></tr>`).join('');
     }
-    async function clearLogs() {
-        if(confirm('确定清空所有日志?')) { await api('/api/admin/logs/clear', 'POST'); loadLogs(); }
+    async function clearLogs() { if(confirm('确定清空?')) { await api('/api/admin/logs/clear', 'POST'); loadLogs(); } }
+
+    // --- 系统设置逻辑 (新增) ---
+    async function loadSettings() {
+        const config = await api('/api/admin/config');
+        if (config && config.admin_email) {
+            document.getElementById('setting_admin_email').value = config.admin_email;
+        }
     }
+    
+    document.getElementById('settingsForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('setting_admin_email').value;
+        const res = await api('/api/admin/config', 'POST', { admin_email: email });
+        if (res.success) alert("保存成功！");
+        else alert("保存失败");
+    };
 </script>
 </body>
 </html>
