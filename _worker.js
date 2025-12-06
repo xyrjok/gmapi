@@ -17,10 +17,9 @@ export default {
     });
 
     // ============================================================
-    // 1. API 接口 (保持原有逻辑，不做修改)
+    // 1. API 接口 (保持原有逻辑)
     // ============================================================
 
-    // 获取公开渠道
     if (path === '/api/public/channels' && request.method === 'GET') {
       try {
         const { results } = await XYRJ_GMAILAPI.prepare("SELECT id, name FROM gmail_apis WHERE is_active = 1 ORDER BY id ASC").run();
@@ -30,7 +29,6 @@ export default {
       }
     }
 
-    // 发送留言
     if (path === '/api/contact' && request.method === 'POST') {
       try {
         const { name, contact, message, channel_id } = await request.json();
@@ -64,20 +62,17 @@ export default {
       }
     }
 
-    // 管理员登录
     if (path === '/api/login' && request.method === 'POST') {
       const { username, password } = await request.json();
       if (username === ADMIN_USER && password === ADMIN_PASS) return jsonResp({ success: true, token: ADMIN_PASS });
       return jsonResp({ success: false, msg: "用户名或密码错误" }, 401);
     }
 
-    // 管理员 API 鉴权拦截
     if (path.startsWith('/api/admin/')) {
       const authHeader = request.headers.get("Authorization");
       if (authHeader !== ADMIN_PASS) return jsonResp({ success: false, msg: "无权访问" }, 401);
     }
 
-    // 系统配置
     if (path === '/api/admin/config') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM settings").run();
@@ -91,7 +86,6 @@ export default {
         }
     }
 
-    // 收件规则管理
     if (path === '/api/admin/receivers') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules ORDER BY id DESC").run();
@@ -120,7 +114,6 @@ export default {
         return jsonResp({ success: true });
     }
 
-    // Gmail 节点管理
     if (path === '/api/admin/gmails') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
@@ -155,7 +148,6 @@ export default {
         return jsonResp({ success: true });
     }
 
-    // 日志管理
     if (path === '/api/admin/logs') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
@@ -168,14 +160,22 @@ export default {
     }
 
     // ============================================================
-    // 2. 关键修改：白名单优先策略 (HTML 文件检查)
+    // 2. 关键修改：静态资源策略 (修复跳转回首页的问题)
     // ============================================================
-    // 优先尝试加载静态资源 (abc.html, email.html, admin/index.html 等)
-    // 注意：只返回存在的资源 (status 200-399)。
-    // 如果 Asset Fetch 返回 404，说明用户访问的不是仓库里的文件，我们不返回这个 404，而是继续往下跑逻辑去查数据库。
-    let assetResponse = await env.ASSETS.fetch(request);
-    if (assetResponse.status >= 200 && assetResponse.status < 400) {
-        return assetResponse;
+    // 问题修复：Cloudflare 默认会把找不到的路径 (如 /ABC) 重写回 index.html。
+    // 我们必须手动过滤：只有请求的是"首页"、"后台"或"带后缀的文件"时，才允许加载静态资源。
+    // 其他情况（即查询码）一律跳过此步骤，直接进入数据库查询。
+    
+    const isRoot = path === '/' || path === '/index.html';
+    // 简单判断：路径包含点 '.' (代表有后缀名，如 .js .css .png) 或者是 /admin 开头
+    const looksLikeFile = path.includes('.') || path.startsWith('/admin');
+
+    // 只有当它是文件或者首页时，才去 Asset 里面找
+    if (isRoot || looksLikeFile) {
+        let assetResponse = await env.ASSETS.fetch(request);
+        if (assetResponse.status >= 200 && assetResponse.status < 400) {
+            return assetResponse;
+        }
     }
 
     // ============================================================
@@ -230,14 +230,12 @@ export default {
                 });
 
                 // ========================================================
-                // 4. 格式化输出 (修改处)
-                // 格式：日期 时间 | 正文 (如：2025-12-06 21:07:48 | 内容...)
-                // 时间：转换为中国时间 (UTC+8)
+                // 4. 格式化输出
                 // ========================================================
                 const contentHtml = finalEmails.map(e => {
-                    // 时间转换: 原时间 -> Unix时间戳 -> +8小时 -> 获取 UTC 组件拼装
+                    // 时间转换: UTC+8
                     const utcTime = new Date(e.date).getTime();
-                    const cnTime = new Date(utcTime + 8 * 3600000); // 加上8小时毫秒数
+                    const cnTime = new Date(utcTime + 8 * 3600000); 
 
                     const y = cnTime.getUTCFullYear();
                     const m = String(cnTime.getUTCMonth() + 1).padStart(2, '0');
@@ -247,8 +245,6 @@ export default {
                     const s = String(cnTime.getUTCSeconds()).padStart(2, '0');
                     
                     const timeStr = `${y}-${m}-${d} ${h}:${min}:${s}`;
-                    
-                    // 正文处理 (转义 HTML 标签防止错乱，但保留换行视觉)
                     const displayBody = (e.body || e.snippet || "").replace(/</g,'&lt;');
 
                     // 输出格式
@@ -264,7 +260,6 @@ export default {
                     <title>查询结果</title>
                     <style>
                         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; color: #333; line-height: 1.6; font-size: 15px; background: #fff; }
-                        /* 针对移动端优化 */
                         @media (max-width: 600px) { body { padding: 15px; font-size: 14px; } }
                     </style>
                 </head>
@@ -282,7 +277,7 @@ export default {
     }
 
     // ============================================================
-    // 5. 最终兜底：既不是API，也不是文件，也不是对的查询码 -> 报错
+    // 5. 最终兜底
     // ============================================================
     return new Response("查询码错！", { 
         status: 404, 
