@@ -20,7 +20,7 @@ export default {
 
     // 1. 获取公开的联系渠道列表 (只返回 ID 和 名称，不返回 URL/Token)
     if (path === '/api/public/channels' && request.method === 'GET') {
-      const { results } = await env.DB.prepare(
+      const { results } = await XYRJ-GMAILAPI.prepare(
         "SELECT id, name FROM gmail_apis WHERE is_active = 1 ORDER BY id ASC"
       ).run();
       return jsonResp(results);
@@ -34,10 +34,10 @@ export default {
         // 1. 确定使用哪个 API (如果指定了ID就用指定的，没指定就随机取一个)
         let apiConfig;
         if (channel_id) {
-            apiConfig = await env.DB.prepare("SELECT * FROM gmail_apis WHERE id = ? AND is_active = 1").bind(channel_id).first();
+            apiConfig = await XYRJ-GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE id = ? AND is_active = 1").bind(channel_id).first();
         } else {
             // 负载均衡：随机取一个可用的
-            apiConfig = await env.DB.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
+            apiConfig = await XYRJ-GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1").first();
         }
 
         if (!apiConfig) return jsonResp({ success: false, msg: "暂无可用发送渠道" }, 503);
@@ -58,7 +58,7 @@ export default {
         await fetch(`${apiConfig.script_url}?${params}`);
         
         // 4. 记日志
-        await env.DB.prepare("INSERT INTO email_logs (recipient, subject, status) VALUES (?, ?, ?)")
+        await XYRJ-GMAILAPI.prepare("INSERT INTO email_logs (recipient, subject, status) VALUES (?, ?, ?)")
           .bind("ADMIN", subject, `成功(${apiConfig.name})`).run();
 
         return jsonResp({ success: true, msg: "发送成功" });
@@ -89,14 +89,14 @@ export default {
 
     // 列表
     if (path === '/api/admin/gmails' && request.method === 'GET') {
-      const { results } = await env.DB.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
+      const { results } = await XYRJ-GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
       return jsonResp(results);
     }
 
     // 添加单个
     if (path === '/api/admin/gmails' && request.method === 'POST') {
       const { name, url, token } = await request.json();
-      await env.DB.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)")
+      await XYRJ-GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)")
         .bind(name, url, token).run();
       return jsonResp({ success: true });
     }
@@ -108,7 +108,7 @@ export default {
       const lines = content.split('\n');
       let count = 0;
       
-      const stmt = env.DB.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
+      const stmt = XYRJ-GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
       const batch = [];
       
       for (let line of lines) {
@@ -118,7 +118,7 @@ export default {
             count++;
         }
       }
-      if(batch.length > 0) await env.DB.batch(batch);
+      if(batch.length > 0) await XYRJ-GMAILAPI.batch(batch);
       
       return jsonResp({ success: true, count });
     }
@@ -126,7 +126,7 @@ export default {
     // 删除单个
     if (path.startsWith('/api/admin/gmails/') && request.method === 'DELETE') {
       const id = path.split('/').pop();
-      await env.DB.prepare("DELETE FROM gmail_apis WHERE id = ?").bind(id).run();
+      await XYRJ-GMAILAPI.prepare("DELETE FROM gmail_apis WHERE id = ?").bind(id).run();
       return jsonResp({ success: true });
     }
     
@@ -137,7 +137,7 @@ export default {
         
         // 构建 (?,?,?)
         const placeholders = ids.map(() => '?').join(',');
-        await env.DB.prepare(`DELETE FROM gmail_apis WHERE id IN (${placeholders})`)
+        await XYRJ-GMAILAPI.prepare(`DELETE FROM gmail_apis WHERE id IN (${placeholders})`)
             .bind(...ids).run();
         return jsonResp({ success: true });
     }
@@ -145,20 +145,20 @@ export default {
     // 切换状态 (启用/禁用)
     if (path === '/api/admin/gmails/toggle' && request.method === 'POST') {
         const { id, status } = await request.json();
-        await env.DB.prepare("UPDATE gmail_apis SET is_active = ? WHERE id = ?")
+        await XYRJ-GMAILAPI.prepare("UPDATE gmail_apis SET is_active = ? WHERE id = ?")
             .bind(status, id).run();
         return jsonResp({ success: true });
     }
 
     // --- 日志管理 ---
     if (path === '/api/admin/logs' && request.method === 'GET') {
-      const { results } = await env.DB.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
+      const { results } = await XYRJ-GMAILAPI.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
       return jsonResp(results);
     }
     
     // 批量清空日志
     if (path === '/api/admin/logs/clear' && request.method === 'POST') {
-        await env.DB.prepare("DELETE FROM email_logs").run();
+        await XYRJ-GMAILAPI.prepare("DELETE FROM email_logs").run();
         return jsonResp({ success: true });
     }
 
