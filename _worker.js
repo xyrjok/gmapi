@@ -102,10 +102,12 @@ export default {
     if (path === '/api/admin/receivers' && request.method === 'POST') {
         const data = await request.json();
         
+        // 必填项校验
         if (!data.access_code || !data.name || !data.target_api_name) {
              return jsonResp({ success: false, msg: "必填参数缺失 (名称/查询码/API节点)" }, 400);
         }
         
+        // 默认值处理：留空则分别设为 5 和 0 (0代表永久)
         const fetchCount = (data.fetch_count === undefined || data.fetch_count === null || data.fetch_count === '') ? 5 : parseInt(data.fetch_count);
         const validDays = (data.valid_days === undefined || data.valid_days === null || data.valid_days === '') ? 0 : parseInt(data.valid_days);
 
@@ -184,7 +186,7 @@ export default {
             
             if (rule) {
                 try {
-                    // 有效期检查
+                    // 有效期检查 (valid_days=0 代表永久)
                     let daysLeftStr = "永久";
                     if (rule.valid_days > 0) {
                         const startTime = new Date(rule.updated_at).getTime();
@@ -196,26 +198,27 @@ export default {
                         daysLeftStr = ((expireTime - now) / 86400000).toFixed(1) + " 天";
                     }
 
-                    // 节点查找
+                    // 节点查找 (严格匹配名称)
                     const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
                     if (!apiNode) {
                         return new Response(`配置错误: 指定的 API 节点 [${rule.target_api_name}] 不存在或已停用。`, { status: 503, headers:{'Content-Type':'text/plain;charset=utf-8'} });
                     }
 
-                    // 抓取
-                    const fetchUrl = `${apiNode.script_url}?action=fetch&count=${rule.fetch_count}`;
+                    // 抓取 (关键修改：action=get, limit=..., 且必须带 token)
+                    // 同时保留 count 参数以防万一，但 limit 是根据您测试链接确认有效的
+                    const fetchUrl = `${apiNode.script_url}?action=get&limit=${rule.fetch_count}&count=${rule.fetch_count}&token=${apiNode.token}`;
+                    
                     const gasRes = await fetch(fetchUrl);
                     let emails = [];
                     try { 
                         emails = await gasRes.json(); 
                     } catch (err) { 
-                        // 详细的错误返回，方便调试
-                        return new Response("解析邮件数据失败。请检查 GAS 部署权限是否为“任何人(Anyone)”。", { status: 502, headers:{'Content-Type':'text/plain;charset=utf-8'} }); 
+                        return new Response("解析邮件数据失败。可能是 Token 错误或 GAS 脚本未返回 JSON。", { status: 502, headers:{'Content-Type':'text/plain;charset=utf-8'} }); 
                     }
 
-                    // 过滤 (修复了字段兼容性问题：同时支持 body 和 snippet)
+                    // 过滤 (兼容 snippet 字段)
                     const finalEmails = emails.filter(email => {
-                        // 兼容处理：优先用 body，没有则用 snippet，再没有则为空
+                        // 优先取 body，如果为空则取 snippet
                         const content = (email.body || email.snippet || "").toLowerCase();
                         const sender = (email.from || "").toLowerCase();
 
@@ -232,9 +235,9 @@ export default {
                         return matchS && matchB;
                     });
 
-                    // 返回 HTML (修复了显示部分)
+                    // 返回 HTML
                     let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>邮件收取结果</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;background:#f4f7f6;max-width:800px;margin:0 auto}.header{background:#fff;padding:15px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,.05)}.email-card{background:#fff;padding:20px;margin-bottom:15px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.05);border-left:4px solid #409EFF}.meta{font-size:13px;color:#888;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap}.subject{font-weight:700;font-size:18px;color:#333;margin-bottom:12px;display:block}.body{font-size:15px;color:#444;white-space:pre-wrap;word-break:break-all;line-height:1.6}.empty{text-align:center;color:#999;padding:40px}</style></head><body><div class="header"><h3 style="margin:0 0 10px">📬 收件箱: ${rule.name}</h3><div style="font-size:13px;color:#666"><span>有效期: <b>${daysLeftStr}</b></span> | <span>节点: ${rule.target_api_name}</span> | <span>匹配: ${finalEmails.length} 封</span></div></div>${finalEmails.map(e => {
-                        // 显示兼容：优先 body，否则 snippet
+                        // 显示时同样优先使用 body，没有则使用 snippet
                         const displayBody = (e.body || e.snippet || "").replace(/</g,'&lt;');
                         return `<div class="email-card"><div class="meta"><span><i class="user"></i> ${e.from.replace(/</g,'&lt;')}</span><span>${new Date(e.date).toLocaleString()}</span></div><span class="subject">${e.subject||'(无主题)'}</span><div class="body">${displayBody}</div></div>`;
                     }).join('')}${finalEmails.length===0?'<div class="empty">📭 暂无符合条件的邮件</div>':''}</body></html>`;
