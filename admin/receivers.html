@@ -7,6 +7,26 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="../assets/all.min.css" rel="stylesheet">
     <link href="files/admin.css" rel="stylesheet">
+    <style>
+        /* 新增 Toast 提示框样式 */
+        .custom-toast {
+            position: fixed;
+            padding: 6px 12px;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 12px;
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            transform: translate(-50%, -100%);
+            margin-top: -10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .custom-toast.show {
+            opacity: 1;
+        }
+    </style>
 </head>
 <body>
 
@@ -111,7 +131,7 @@
         loadReceivers();
     }
 
-    // === 修改点 1：重写加载列表函数，增加图标和发送框 ===
+    // === 修改点 1：重写加载列表函数，增加邮件内容输入框和样式 ===
     async function loadReceivers() {
         const tbody = document.getElementById('recvTableBody');
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">加载中...</td></tr>';
@@ -128,13 +148,11 @@
                 daysDisplay = `<span class="small ${daysLeft <= 0 ? 'text-danger fw-bold' : 'text-success'}">剩余: ${daysLeft} 天</span>`;
             }
 
-            // 处理图标颜色和类型 (依赖后端返回的 provider 字段)
+            // 处理图标颜色和类型
             let providerIcon = '';
-            // 谷歌深橙色 (#F57C00)
             if (item.provider === 'gmail') {
                 providerIcon = '<i class="fab fa-google fa-lg me-2" style="color: #F57C00;" title="Google Gmail"></i>'; 
             } 
-            // 微软蓝色 (#0078D4)
             else if (item.provider === 'outlook') {
                 providerIcon = '<i class="fab fa-microsoft fa-lg me-2" style="color: #0078D4;" title="Microsoft Outlook"></i>'; 
             } 
@@ -157,11 +175,14 @@
                         <code class="user-select-all me-2 bg-light border px-1 rounded">${item.access_code}</code>
                         <a href="/${item.access_code}" target="_blank" class="btn btn-sm btn-light border py-0 px-2" title="访问链接"><i class="fas fa-external-link-alt small"></i></a>
                     </div>
-                    <div class="input-group input-group-sm" style="max-width: 280px;">
-                        <input type="text" class="form-control" placeholder="输入邮箱发送测试..." id="send-input-${item.id}">
-                        <button class="btn btn-outline-secondary" type="button" onclick="sendDirect('${item.target_api_name}', ${item.id}, this)" title="使用此节点发送邮件">
-                            <i class="fas fa-paper-plane"></i> 发送
-                        </button>
+                    <div style="max-width: 280px;">
+                        <input type="text" class="form-control form-control-sm mb-1" placeholder="输入邮箱发送测试..." id="send-input-${item.id}">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" placeholder="内容 (留空默认发日期)" id="send-body-${item.id}">
+                            <button class="btn btn-outline-secondary" type="button" onclick="sendDirect('${item.target_api_name}', ${item.id}, this, event)" title="发送">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
                     </div>
                 </td>
                 <td><div class="small">抓取: ${item.fetch_count} 封</div><div>${daysDisplay}</div></td>
@@ -174,23 +195,49 @@
         }).join('');
     }
 
-    // === 修改点 2：新增直接发送邮件函数 ===
-    async function sendDirect(nodeName, id, btn) {
-        if (!nodeName) return alert("未绑定有效节点，无法发送");
-        const input = document.getElementById(`send-input-${id}`);
-        const toEmail = input.value.trim();
+    // === 修改点 2：新增直接发送邮件函数（支持自定义内容、默认时间和 Toast 提示） ===
+    async function sendDirect(nodeName, id, btn, e) {
+        // 阻止默认事件
+        if(e) e.preventDefault();
+        
+        // 简单 Toast 提示函数
+        const showToast = (msg, success) => {
+            const toast = document.createElement('div');
+            toast.className = 'custom-toast show';
+            toast.style.backgroundColor = success ? 'rgba(25, 135, 84, 0.9)' : 'rgba(220, 53, 69, 0.9)'; // 绿/红
+            toast.style.left = (e ? e.clientX : window.innerWidth/2) + 'px';
+            toast.style.top = (e ? e.clientY : window.innerHeight/2) + 'px';
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        };
+
+        if (!nodeName) return showToast("未绑定有效节点，无法发送", false);
+        
+        const emailInput = document.getElementById(`send-input-${id}`);
+        const bodyInput = document.getElementById(`send-body-${id}`);
+        
+        const toEmail = emailInput.value.trim();
+        let bodyContent = bodyInput.value.trim();
         
         if (!toEmail) {
-            input.focus();
-            return alert("请输入接收测试邮件的邮箱地址");
+            emailInput.focus();
+            return showToast("请输入邮箱地址", false);
         }
 
-        // 简单的邮箱格式检查
+        // 如果内容为空，使用默认时间
+        if (!bodyContent) {
+            bodyContent = "The time is: " + new Date();
+        }
+
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
-             return alert("请输入有效的邮箱地址");
+             return showToast("请输入有效的邮箱地址", false);
         }
 
-        // UI 交互状态
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -199,17 +246,16 @@
             const res = await api('/api/admin/send_direct', 'POST', {
                 node_name: nodeName,
                 to_email: toEmail,
-                body: "这是一封来自控制台的测试邮件。\nThis is a test email sent from the console."
+                body: bodyContent
             });
 
             if (res && res.success) {
-                alert('发送成功！\n' + (res.msg || ''));
-                input.value = ''; // 清空输入框
+                showToast('发送成功！', true);
             } else {
-                alert('发送失败：\n' + (res ? res.msg : '未知错误'));
+                showToast('发送失败：' + (res ? res.msg : '未知错误'), false);
             }
         } catch (error) {
-            alert('网络或系统错误');
+            showToast('网络或系统错误', false);
             console.error(error);
         } finally {
             btn.disabled = false;
@@ -220,10 +266,7 @@
     async function loadApiOptions() {
         const listObj = document.getElementById('apiOptions');
         listObj.innerHTML = '';
-        // 这里的逻辑：先获取 Gmail，再获取 Outlook，合并显示在下拉选项中
-        // 这样用户在新建规则时可以选择任意类型的节点
         
-        // 1. 获取 Gmail 节点
         const gmails = await api('/api/admin/gmails');
         if (gmails) gmails.forEach(node => { 
             if(node.is_active) { 
@@ -234,7 +277,6 @@
             }
         });
 
-        // 2. 获取 Outlook 节点
         const outlooks = await api('/api/admin/outlooks');
         if (outlooks) outlooks.forEach(node => {
             if(node.is_active) {
