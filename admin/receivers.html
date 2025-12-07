@@ -42,11 +42,11 @@
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>名称 / 绑定节点</th>
-                            <th>查询码</th>
-                            <th>抓取数 / 有效期</th>
-                            <th>匹配规则</th>
-                            <th>操作</th>
+                            <th style="width: 25%">名称 / 绑定节点</th>
+                            <th style="width: 35%">查询码 / 发送测试</th>
+                            <th style="width: 15%">抓取数 / 有效期</th>
+                            <th style="width: 15%">匹配规则</th>
+                            <th style="width: 10%">操作</th>
                         </tr>
                     </thead>
                     <tbody id="recvTableBody"></tbody>
@@ -111,6 +111,7 @@
         loadReceivers();
     }
 
+    // === 修改点 1：重写加载列表函数，增加图标和发送框 ===
     async function loadReceivers() {
         const tbody = document.getElementById('recvTableBody');
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">加载中...</td></tr>';
@@ -127,26 +128,122 @@
                 daysDisplay = `<span class="small ${daysLeft <= 0 ? 'text-danger fw-bold' : 'text-success'}">剩余: ${daysLeft} 天</span>`;
             }
 
+            // 处理图标颜色和类型 (依赖后端返回的 provider 字段)
+            let providerIcon = '';
+            // 谷歌深橙色 (#F57C00)
+            if (item.provider === 'gmail') {
+                providerIcon = '<i class="fab fa-google fa-lg me-2" style="color: #F57C00;" title="Google Gmail"></i>'; 
+            } 
+            // 微软蓝色 (#0078D4)
+            else if (item.provider === 'outlook') {
+                providerIcon = '<i class="fab fa-microsoft fa-lg me-2" style="color: #0078D4;" title="Microsoft Outlook"></i>'; 
+            } 
+            else {
+                providerIcon = '<i class="fas fa-server fa-lg me-2 text-secondary"></i>';
+            }
+
             return `<tr>
-                <td><div class="fw-bold">${item.name}</div>
-                    ${item.target_api_name ? `<span class="badge bg-primary bg-opacity-75 text-white small" style="font-weight:400"><i class="fas fa-server"></i> ${item.target_api_name}</span>` : '<span class="badge bg-secondary small">随机节点</span>'}
+                <td>
+                    <div class="d-flex align-items-center">
+                        ${providerIcon}
+                        <div>
+                            <div class="fw-bold">${item.name}</div>
+                            ${item.target_api_name ? `<span class="badge bg-primary bg-opacity-75 text-white small" style="font-weight:400; font-size: 0.75rem;">${item.target_api_name}</span>` : '<span class="badge bg-secondary small">随机节点</span>'}
+                        </div>
+                    </div>
                 </td>
-                <td><code class="user-select-all me-2">${item.access_code}</code><a href="/${item.access_code}" target="_blank" class="btn btn-sm btn-light border"><i class="fas fa-external-link-alt small"></i></a></td>
+                <td>
+                    <div class="mb-2 d-flex align-items-center">
+                        <code class="user-select-all me-2 bg-light border px-1 rounded">${item.access_code}</code>
+                        <a href="/${item.access_code}" target="_blank" class="btn btn-sm btn-light border py-0 px-2" title="访问链接"><i class="fas fa-external-link-alt small"></i></a>
+                    </div>
+                    <div class="input-group input-group-sm" style="max-width: 280px;">
+                        <input type="text" class="form-control" placeholder="输入邮箱发送测试..." id="send-input-${item.id}">
+                        <button class="btn btn-outline-secondary" type="button" onclick="sendDirect('${item.target_api_name}', ${item.id}, this)" title="使用此节点发送邮件">
+                            <i class="fas fa-paper-plane"></i> 发送
+                        </button>
+                    </div>
+                </td>
                 <td><div class="small">抓取: ${item.fetch_count} 封</div><div>${daysDisplay}</div></td>
                 <td class="small text-muted"><div>发件: ${item.match_sender || '-'}</div><div>正文: ${item.match_body || '-'}</div></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick='editRecv(${JSON.stringify(item)})'><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="delRecv(${item.id})"><i class="fas fa-trash"></i></button>
+                    <button class="btn btn-sm btn-outline-primary" onclick='editRecv(${JSON.stringify(item)})' title="编辑"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="delRecv(${item.id})" title="删除"><i class="fas fa-trash"></i></button>
                 </td>
             </tr>`;
         }).join('');
     }
 
+    // === 修改点 2：新增直接发送邮件函数 ===
+    async function sendDirect(nodeName, id, btn) {
+        if (!nodeName) return alert("未绑定有效节点，无法发送");
+        const input = document.getElementById(`send-input-${id}`);
+        const toEmail = input.value.trim();
+        
+        if (!toEmail) {
+            input.focus();
+            return alert("请输入接收测试邮件的邮箱地址");
+        }
+
+        // 简单的邮箱格式检查
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
+             return alert("请输入有效的邮箱地址");
+        }
+
+        // UI 交互状态
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        try {
+            const res = await api('/api/admin/send_direct', 'POST', {
+                node_name: nodeName,
+                to_email: toEmail,
+                body: "这是一封来自控制台的测试邮件。\nThis is a test email sent from the console."
+            });
+
+            if (res && res.success) {
+                alert('发送成功！\n' + (res.msg || ''));
+                input.value = ''; // 清空输入框
+            } else {
+                alert('发送失败：\n' + (res ? res.msg : '未知错误'));
+            }
+        } catch (error) {
+            alert('网络或系统错误');
+            console.error(error);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
     async function loadApiOptions() {
         const listObj = document.getElementById('apiOptions');
         listObj.innerHTML = '';
-        const apis = await api('/api/admin/gmails');
-        if (apis) apis.forEach(node => { if(node.is_active) { const opt = document.createElement('option'); opt.value = node.name; listObj.appendChild(opt); }});
+        // 这里的逻辑：先获取 Gmail，再获取 Outlook，合并显示在下拉选项中
+        // 这样用户在新建规则时可以选择任意类型的节点
+        
+        // 1. 获取 Gmail 节点
+        const gmails = await api('/api/admin/gmails');
+        if (gmails) gmails.forEach(node => { 
+            if(node.is_active) { 
+                const opt = document.createElement('option'); 
+                opt.value = node.name; 
+                opt.label = `[Gmail] ${node.alias || node.name}`;
+                listObj.appendChild(opt); 
+            }
+        });
+
+        // 2. 获取 Outlook 节点
+        const outlooks = await api('/api/admin/outlooks');
+        if (outlooks) outlooks.forEach(node => {
+            if(node.is_active) {
+                const opt = document.createElement('option');
+                opt.value = node.name;
+                opt.label = `[Outlook] ${node.alias || node.name}`;
+                listObj.appendChild(opt);
+            }
+        });
     }
 
     async function showRecvModal() {
