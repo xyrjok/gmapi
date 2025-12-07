@@ -229,9 +229,16 @@
             return showToast("请输入邮箱地址", false);
         }
 
-        // 如果内容为空，使用默认时间
+        // 【修改点】如果内容为空，使用指定格式的时间戳 + 时钟图标
         if (!bodyContent) {
-            bodyContent = "The time is: " + new Date();
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+            const s = String(now.getSeconds()).padStart(2, '0');
+            bodyContent = `The time is: ${y}-${m}-${d} ${h}:${min}:${s} ⏰`;
         }
 
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
