@@ -16,7 +16,7 @@ export default {
       }
     });
 
-    // === 新增辅助函数: 统一 HTML 返回 (包含字体和样式设置) ===
+    // === 辅助函数: 统一 HTML 返回 (包含字体和样式设置) ===
     const htmlResp = (content, status = 200) => {
         const html = `<!DOCTYPE html>
         <html lang="zh-CN">
@@ -37,9 +37,10 @@ export default {
     };
 
     // ============================================================
-    // 1. API 接口 (保持原有逻辑不变)
+    // 1. API 接口
     // ============================================================
 
+    // 公开接口：获取可用渠道列表 (仅 Gmail，如果想让 Outlook 也支持公开留言可修改此处 SQL)
     if (path === '/api/public/channels' && request.method === 'GET') {
       try {
         const { results } = await XYRJ_GMAILAPI.prepare("SELECT id, name FROM gmail_apis WHERE is_active = 1 ORDER BY id ASC").run();
@@ -49,6 +50,7 @@ export default {
       }
     }
 
+    // 公开接口：发送留言 (目前仅支持 Gmail 渠道)
     if (path === '/api/contact' && request.method === 'POST') {
       try {
         const { name, contact, message, channel_id } = await request.json();
@@ -82,17 +84,20 @@ export default {
       }
     }
 
+    // 后台登录
     if (path === '/api/login' && request.method === 'POST') {
       const { username, password } = await request.json();
       if (username === ADMIN_USER && password === ADMIN_PASS) return jsonResp({ success: true, token: ADMIN_PASS });
       return jsonResp({ success: false, msg: "用户名或密码错误" }, 401);
     }
 
+    // --- 管理员权限检查 ---
     if (path.startsWith('/api/admin/')) {
       const authHeader = request.headers.get("Authorization");
       if (authHeader !== ADMIN_PASS) return jsonResp({ success: false, msg: "无权访问" }, 401);
     }
 
+    // 管理接口：配置
     if (path === '/api/admin/config') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM settings").run();
@@ -106,6 +111,7 @@ export default {
         }
     }
 
+    // 管理接口：收信规则
     if (path === '/api/admin/receivers') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules ORDER BY id DESC").run();
@@ -134,6 +140,7 @@ export default {
         return jsonResp({ success: true });
     }
 
+    // 管理接口：Gmail 节点
     if (path === '/api/admin/gmails') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
@@ -168,6 +175,31 @@ export default {
         return jsonResp({ success: true });
     }
 
+    // === 新增：管理接口：Outlook (微软) 节点 ===
+    if (path === '/api/admin/outlooks') {
+        if (request.method === 'GET') {
+            const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM outlook_apis ORDER BY id DESC").run();
+            return jsonResp(results);
+        }
+        if (request.method === 'POST') {
+            const { name, client_id, client_secret, refresh_token } = await request.json();
+            await XYRJ_GMAILAPI.prepare("INSERT INTO outlook_apis (name, client_id, client_secret, refresh_token) VALUES (?, ?, ?, ?)")
+                .bind(name, client_id, client_secret, refresh_token).run();
+            return jsonResp({ success: true });
+        }
+    }
+    if (path.startsWith('/api/admin/outlooks/') && request.method === 'DELETE') {
+        const id = path.split('/').pop();
+        await XYRJ_GMAILAPI.prepare("DELETE FROM outlook_apis WHERE id = ?").bind(id).run();
+        return jsonResp({ success: true });
+    }
+    if (path === '/api/admin/outlooks/toggle' && request.method === 'POST') {
+        const { id, status } = await request.json();
+        await XYRJ_GMAILAPI.prepare("UPDATE outlook_apis SET is_active = ? WHERE id = ?").bind(status, id).run();
+        return jsonResp({ success: true });
+    }
+
+    // 管理接口：日志
     if (path === '/api/admin/logs') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM email_logs ORDER BY id DESC LIMIT 50").run();
@@ -183,57 +215,113 @@ export default {
     // 2. 静态资源策略
     // ============================================================
     const isRoot = path === '/' || path === '/index.html';
-    const isEmailPage = path === '/email' || path === '/email.html'; // 保持白名单
+    const isEmailPage = path === '/email' || path === '/email.html'; 
     const looksLikeFile = path.includes('.') || path.startsWith('/admin');
 
-    // 如果是白名单页面或看起来像文件，直接请求静态资源
     if (isRoot || looksLikeFile || isEmailPage) {
-        
-        // 【关键修复】直接使用原始 request，不要手动 new Request 修改路径
-        // Cloudflare Pages 会自动处理 /email 对应 email.html 的逻辑
         let assetResponse = await env.ASSETS.fetch(request);
-        
         if (assetResponse.status >= 200 && assetResponse.status < 400) {
             return assetResponse;
         }
     }
 
     // ============================================================
-    // 3. 智能拦截 (查询码检查)
+    // 3. 智能拦截 (查询码检查 - 支持 Gmail 和 Outlook)
     // ============================================================
     const code = path.substring(1); // 去掉开头的 /
     
-    if (code) {
+    // 确保不是 API 请求也不是文件请求
+    if (code && !path.startsWith('/api/') && !looksLikeFile) {
         const rule = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules WHERE access_code = ?").bind(code).first();
         
         if (rule) {
             try {
-                // 有效期检查
+                // --- 1. 有效期检查 ---
                 if (rule.valid_days > 0) {
                     const startTime = new Date(rule.updated_at).getTime();
                     const now = Date.now();
                     const expireTime = startTime + (rule.valid_days * 86400000);
                     if (now > expireTime) {
-                         // 过期也使用 htmlResp，只是文字不同
                         return htmlResp(`<div class="content-output error-box">查询码已过期 (Expired)<br><small>过期时间: ${new Date(expireTime).toLocaleString()}</small></div>`, 403);
                     }
                 }
 
-                // 节点查找
-                const apiNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
-                if (!apiNode) {
-                    return htmlResp(`<div class="content-output error-box">配置错误: 指定的 API 节点 [${rule.target_api_name}] 不存在或已停用。</div>`, 503);
-                }
-
-                // 抓取邮件
-                const fetchUrl = `${apiNode.script_url}?action=get&limit=${rule.fetch_count}&count=${rule.fetch_count}&token=${apiNode.token}`;
-                const gasRes = await fetch(fetchUrl);
                 let emails = [];
-                try { emails = await gasRes.json(); } catch (err) { 
-                    return htmlResp(`<div class="content-output error-box">解析邮件数据失败。<br>可能是 Token 错误或 GAS 脚本未返回 JSON。</div>`, 502); 
+                let fetchError = null;
+
+                // --- 2. 查找 API 节点 (先 Gmail 后 Outlook) ---
+                
+                // A. 尝试获取 Gmail 节点
+                const gmailNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
+                
+                // B. 尝试获取 Outlook 节点
+                const outlookNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM outlook_apis WHERE name = ? AND is_active = 1").bind(rule.target_api_name).first();
+
+                if (gmailNode) {
+                    // === GMAIL 抓取逻辑 ===
+                    const fetchUrl = `${gmailNode.script_url}?action=get&limit=${rule.fetch_count}&count=${rule.fetch_count}&token=${gmailNode.token}`;
+                    const gasRes = await fetch(fetchUrl);
+                    try { 
+                        emails = await gasRes.json(); 
+                    } catch (err) { fetchError = "Gmail 解析失败 (JSON Error)"; }
+
+                } else if (outlookNode) {
+                    // === OUTLOOK 抓取逻辑 ===
+                    try {
+                        // 1. 刷新 Token
+                        const tokenParams = new URLSearchParams();
+                        tokenParams.append('client_id', outlookNode.client_id);
+                        tokenParams.append('client_secret', outlookNode.client_secret);
+                        tokenParams.append('refresh_token', outlookNode.refresh_token);
+                        tokenParams.append('grant_type', 'refresh_token');
+                        tokenParams.append('scope', 'https://graph.microsoft.com/.default');
+
+                        const tokenRes = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: tokenParams
+                        });
+                        const tokenData = await tokenRes.json();
+
+                        if (!tokenData.access_token) {
+                            throw new Error("刷新 Token 失败: " + (tokenData.error_description || "未知错误"));
+                        }
+
+                        // 2. 读取邮件
+                        // 使用 $select 减少数据量，使用 $top 控制条数
+                        const graphUrl = `https://graph.microsoft.com/v1.0/me/messages?$top=${rule.fetch_count}&$select=subject,from,bodyPreview,receivedDateTime,body`;
+                        const msgRes = await fetch(graphUrl, {
+                            headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+                        });
+                        const msgData = await msgRes.json();
+
+                        if (!msgData.value) {
+                            throw new Error("Graph API 读取失败");
+                        }
+
+                        // 3. 数据格式标准化 (转为与 Gmail 相同的格式)
+                        emails = msgData.value.map(m => ({
+                            date: m.receivedDateTime,
+                            from: `${m.from.emailAddress.name || ''} <${m.from.emailAddress.address}>`,
+                            // 优先用 bodyPreview (纯文本)，如果没有则尝试取 HTML 内容
+                            snippet: m.bodyPreview,
+                            body: m.bodyPreview || (m.body ? m.body.content : "") || "No Content"
+                        }));
+
+                    } catch (err) {
+                        fetchError = "Outlook 错误: " + err.message;
+                        console.error(err);
+                    }
+
+                } else {
+                    return htmlResp(`<div class="content-output error-box">配置错误: 未找到名为 [${rule.target_api_name}] 的 Gmail 或 Outlook 节点。</div>`, 503);
                 }
 
-                // 过滤
+                if (fetchError) {
+                    return htmlResp(`<div class="content-output error-box">${fetchError}</div>`, 502);
+                }
+
+                // --- 3. 统一过滤逻辑 ---
                 const finalEmails = emails.filter(email => {
                     const content = (email.body || email.snippet || "").toLowerCase();
                     const sender = (email.from || "").toLowerCase();
@@ -249,9 +337,7 @@ export default {
                     return matchS && matchB;
                 });
 
-                // ========================================================
-                // 4. 格式化输出 (修改处)
-                // ========================================================
+                // --- 4. 格式化输出 HTML ---
                 const contentHtml = finalEmails.map(e => {
                     const utcTime = new Date(e.date).getTime();
                     const cnTime = new Date(utcTime + 8 * 3600000); 
@@ -265,29 +351,26 @@ export default {
                     
                     const timeStr = `${y}-${m}-${d} ${h}:${min}:${s}`;
                     
-                    // 修改：去除 [image:...] 并转义 HTML
+                    // 去除干扰字符
                     const displayBody = (e.body || e.snippet || "")
                         .replace(/</g,'&lt;')
                         .replace(/\[image:[^\]]*\]/g, '')
-                        .replace(/[\r\n]+/g, ' '); // 新增：将内容中的换行符替换为空格 
+                        .replace(/[\r\n]+/g, ' '); 
 
-                    // 注意：这里应用 content-output 样式类
                     return `<div class="content-output">${timeStr} | ${displayBody}</div>`;
                 }).join('');
 
-                // 使用 htmlResp 返回，如果为空则显示提示
                 return htmlResp(contentHtml || '<div class="content-output error-box">暂无符合条件的邮件</div>');
 
             } catch (e) {
-                // 系统错误也使用统一样式
                 return htmlResp(`<div class="content-output error-box">系统错误: ${e.message}</div>`, 500);
             }
         }
     }
 
     // ============================================================
-    // 5. 最终兜底 (修改处)
+    // 4. 最终兜底 (404)
     // ============================================================
-    return htmlResp(`<div class="content-output error-box">查询码错！</div>`, 404);
+    return htmlResp(`<div class="content-output error-box">查询码错误！</div>`, 404);
   }
 };
