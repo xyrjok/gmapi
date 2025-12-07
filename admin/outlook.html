@@ -34,12 +34,23 @@
             <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
                 <h3 class="m-0">微软(Outlook)邮箱管理</h3>
                 <div>
+                    <button class="btn btn-sm btn-danger me-1" onclick="batchDelete()" id="btnBatchDel" style="display:none;"><i class="fas fa-trash"></i> 删除选中</button>
                     <button class="btn btn-sm btn-success me-1" onclick="showAddModal()"><i class="fas fa-plus"></i> 添加</button>
-                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="showBatchModal()"><i class="fas fa-file-import"></i> 批量导入</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
-                    <thead class="table-light"><tr><th>名称</th><th>Client ID</th><th>状态</th><th>操作</th></tr></thead>
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="checkAll" onclick="toggleCheckAll()"></th>
+                            <th>别名 (Display)</th>
+                            <th>节点名称 (ID)</th>
+                            <th>Client ID (部分)</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
                     <tbody id="outlookTableBody"></tbody>
                 </table>
             </div>
@@ -47,17 +58,35 @@
     </div>
 </div>
 
-<div class="modal fade" id="addModal" tabindex="-1">
+<div class="modal fade" id="itemModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">添加微软节点</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body">
-                <div class="mb-3"><label>节点名称</label><input type="text" class="form-control" id="addName" placeholder="例如: 我的Outlook"></div>
-                <div class="mb-3"><label>Client ID</label><input type="text" class="form-control" id="addClientId"></div>
-                <div class="mb-3"><label>Client Secret</label><input type="text" class="form-control" id="addClientSecret"></div>
-                <div class="mb-3"><label>Refresh Token</label><input type="text" class="form-control" id="addRefreshToken"></div>
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">添加微软节点</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-footer"><button class="btn btn-primary" onclick="submitAdd()">保存</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="mb-3"><label>别名 (自定义备注)</label><input type="text" class="form-control" id="itemAlias" placeholder="例如: 个人热号"></div>
+                <div class="mb-3"><label>节点名称 (用于规则匹配)</label><input type="text" class="form-control" id="itemName" placeholder="例如: outlook1"></div>
+                <div class="mb-3"><label>Client ID</label><input type="text" class="form-control" id="itemClientId"></div>
+                <div class="mb-3"><label>Client Secret</label><input type="text" class="form-control" id="itemClientSecret"></div>
+                <div class="mb-3"><label>Refresh Token</label><input type="text" class="form-control" id="itemRefreshToken"></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary" onclick="submitItem()">保存</button></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="batchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">批量导入 Outlook</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2">格式：名称,别名,Client_ID,Secret,Refresh_Token (逗号分隔，每行一条)</div>
+                <textarea class="form-control" id="batchContent" rows="8" placeholder="node1,备注,xxxxxxxx,yyyyyyy,zzzzzz"></textarea>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary" onclick="submitBatch()">开始导入</button></div>
         </div>
     </div>
 </div>
@@ -67,52 +96,112 @@
 <script>
     checkAuth();
     
-    let addModal;
+    let itemModal, batchModal;
+    let currentData = [];
+
     window.onload = function() {
-        addModal = new bootstrap.Modal(document.getElementById('addModal'));
-        loadOutlooks();
+        itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+        batchModal = new bootstrap.Modal(document.getElementById('batchModal'));
+        loadData();
     }
 
-    async function loadOutlooks() {
+    async function loadData() {
         const tbody = document.getElementById('outlookTableBody');
-        const list = await api('/api/admin/outlooks');
-        if (!list) return;
+        currentData = await api('/api/admin/outlooks');
+        if (!currentData) return;
         
-        tbody.innerHTML = list.map(item => `
+        tbody.innerHTML = currentData.map(item => `
             <tr>
-                <td class="fw-bold">${item.name}</td>
+                <td><input type="checkbox" class="form-check-input item-check" value="${item.id}" onclick="updateBatchBtn()"></td>
+                <td><span class="badge bg-info text-dark">${item.alias || item.name}</span></td>
+                <td class="fw-bold text-primary">${item.name}</td>
                 <td class="small text-muted text-truncate" style="max-width: 150px;">
                    ${item.client_id ? item.client_id.substring(0, 8) + '...' : ''}
                 </td>
-                <td><div class="form-check form-switch"><input class="form-check-input" type="checkbox" ${item.is_active ? 'checked' : ''} onchange="toggleActive(${item.id}, this.checked)"></div></td>
-                <td><button class="btn btn-sm btn-outline-danger" onclick="delOutlook(${item.id})"><i class="fas fa-trash"></i></button></td>
+                <td>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" ${item.is_active ? 'checked' : ''} onchange="toggleActive(${item.id}, this.checked)"></div>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="openEdit(${item.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="delItem(${item.id})"><i class="fas fa-trash"></i></button>
+                </td>
             </tr>
         `).join('');
+        updateBatchBtn();
+    }
+
+    function toggleCheckAll() {
+        const checked = document.getElementById('checkAll').checked;
+        document.querySelectorAll('.item-check').forEach(c => c.checked = checked);
+        updateBatchBtn();
+    }
+    
+    function updateBatchBtn() {
+        const count = document.querySelectorAll('.item-check:checked').length;
+        document.getElementById('btnBatchDel').style.display = count > 0 ? 'inline-block' : 'none';
     }
 
     function showAddModal() { 
-        document.getElementById('addName').value = ''; 
-        document.getElementById('addClientId').value = ''; 
-        document.getElementById('addClientSecret').value = ''; 
-        document.getElementById('addRefreshToken').value = ''; 
-        addModal.show(); 
+        document.getElementById('modalTitle').innerText = '添加 Outlook 节点';
+        document.getElementById('editId').value = ''; 
+        document.getElementById('itemAlias').value = ''; 
+        document.getElementById('itemName').value = ''; 
+        document.getElementById('itemClientId').value = ''; 
+        document.getElementById('itemClientSecret').value = ''; 
+        document.getElementById('itemRefreshToken').value = ''; 
+        itemModal.show(); 
     }
 
-    async function submitAdd() {
+    function openEdit(id) {
+        const item = currentData.find(i => i.id === id);
+        if(!item) return;
+        document.getElementById('modalTitle').innerText = '编辑 Outlook 节点';
+        document.getElementById('editId').value = item.id;
+        document.getElementById('itemAlias').value = item.alias || item.name;
+        document.getElementById('itemName').value = item.name;
+        document.getElementById('itemClientId').value = item.client_id;
+        document.getElementById('itemClientSecret').value = item.client_secret;
+        document.getElementById('itemRefreshToken').value = item.refresh_token;
+        itemModal.show();
+    }
+
+    async function submitItem() {
+        const id = document.getElementById('editId').value;
         const data = {
-            name: document.getElementById('addName').value,
-            client_id: document.getElementById('addClientId').value,
-            client_secret: document.getElementById('addClientSecret').value,
-            refresh_token: document.getElementById('addRefreshToken').value
+            alias: document.getElementById('itemAlias').value,
+            name: document.getElementById('itemName').value,
+            client_id: document.getElementById('itemClientId').value,
+            client_secret: document.getElementById('itemClientSecret').value,
+            refresh_token: document.getElementById('itemRefreshToken').value
         };
-        if(!data.name || !data.client_id || !data.refresh_token) {
-            alert("请填写完整信息"); return;
+        if(!data.name || !data.client_id || !data.refresh_token) { alert("请填写完整信息"); return; }
+        
+        if (id) {
+            await api('/api/admin/outlooks', 'PUT', { ...data, id });
+        } else {
+            await api('/api/admin/outlooks', 'POST', data);
         }
-        await api('/api/admin/outlooks', 'POST', data);
-        addModal.hide(); loadOutlooks();
+        itemModal.hide(); loadData();
     }
 
-    async function delOutlook(id) { if(confirm('确认删除?')) { await api(`/api/admin/outlooks/${id}`, 'DELETE'); loadOutlooks(); } }
+    function showBatchModal() { document.getElementById('batchContent').value = ''; batchModal.show(); }
+    async function submitBatch() {
+        await api('/api/admin/outlooks/batch', 'POST', { content: document.getElementById('batchContent').value });
+        batchModal.hide(); loadData();
+    }
+
+    async function delItem(id) { if(confirm('确认删除?')) { await api(`/api/admin/outlooks/${id}`, 'DELETE'); loadData(); } }
+    
+    async function batchDelete() {
+        const checked = Array.from(document.querySelectorAll('.item-check:checked')).map(c => c.value);
+        if(checked.length === 0) return;
+        if(confirm(`确认删除选中的 ${checked.length} 个节点?`)) {
+            await api('/api/admin/outlooks/batch_delete', 'POST', { ids: checked });
+            loadData();
+            document.getElementById('checkAll').checked = false;
+        }
+    }
+
     async function toggleActive(id, status) { await api('/api/admin/outlooks/toggle', 'POST', { id, status: status ? 1 : 0 }); }
 </script>
 </body>
