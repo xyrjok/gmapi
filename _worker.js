@@ -140,59 +140,121 @@ export default {
         return jsonResp({ success: true });
     }
 
-    // 管理接口：Gmail 节点
+    // ============================================================
+    // 管理接口：Gmail 节点 (已更新：别名、编辑、批量删除)
+    // ============================================================
     if (path === '/api/admin/gmails') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis ORDER BY id DESC").run();
             return jsonResp(results);
         }
-        if (request.method === 'POST') {
-            const { name, url, token } = await request.json();
-            await XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)").bind(name, url, token).run();
+        if (request.method === 'POST') { // 新增
+            const { name, alias, url, token } = await request.json();
+            await XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, alias, script_url, token) VALUES (?, ?, ?, ?)").bind(name, alias || name, url, token).run();
+            return jsonResp({ success: true });
+        }
+        if (request.method === 'PUT') { // 编辑
+            const { id, name, alias, url, token } = await request.json();
+            await XYRJ_GMAILAPI.prepare("UPDATE gmail_apis SET name=?, alias=?, script_url=?, token=? WHERE id=?").bind(name, alias, url, token, id).run();
             return jsonResp({ success: true });
         }
     }
+    // Gmail 批量导入
     if (path === '/api/admin/gmails/batch' && request.method === 'POST') {
       const { content } = await request.json(); 
       const lines = content.split('\n');
-      const stmt = XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, script_url, token) VALUES (?, ?, ?)");
+      const stmt = XYRJ_GMAILAPI.prepare("INSERT INTO gmail_apis (name, alias, script_url, token) VALUES (?, ?, ?, ?)");
       const batch = [];
       for (let line of lines) {
-        const parts = line.split(/[|,，]/); 
-        if (parts.length >= 3) batch.push(stmt.bind(parts[0].trim(), parts[1].trim(), parts[2].trim()));
+        // 格式支持: 名称,别名,URL,Token (如果只有3项则别名=名称)
+        const parts = line.split(/[|,，]/).map(p => p.trim()); 
+        if (parts.length >= 4) {
+            batch.push(stmt.bind(parts[0], parts[1], parts[2], parts[3]));
+        } else if (parts.length === 3) {
+            batch.push(stmt.bind(parts[0], parts[0], parts[1], parts[2]));
+        }
       }
       if(batch.length > 0) await XYRJ_GMAILAPI.batch(batch);
       return jsonResp({ success: true });
     }
+    // Gmail 批量删除
+    if (path === '/api/admin/gmails/batch_delete' && request.method === 'POST') {
+        const { ids } = await request.json(); // ids 是数组 [1, 2, 3]
+        if (ids && ids.length > 0) {
+            const placeholders = ids.map(() => '?').join(',');
+            await XYRJ_GMAILAPI.prepare(`DELETE FROM gmail_apis WHERE id IN (${placeholders})`).bind(...ids).run();
+        }
+        return jsonResp({ success: true });
+    }
+    // Gmail 单个删除
     if (path.startsWith('/api/admin/gmails/') && request.method === 'DELETE') {
       const id = path.split('/').pop();
       await XYRJ_GMAILAPI.prepare("DELETE FROM gmail_apis WHERE id = ?").bind(id).run();
       return jsonResp({ success: true });
     }
+    // Gmail 状态切换
     if (path === '/api/admin/gmails/toggle' && request.method === 'POST') {
         const { id, status } = await request.json();
         await XYRJ_GMAILAPI.prepare("UPDATE gmail_apis SET is_active = ? WHERE id = ?").bind(status, id).run();
         return jsonResp({ success: true });
     }
 
-    // === 新增：管理接口：Outlook (微软) 节点 ===
+    // ============================================================
+    // 管理接口：Outlook (微软) 节点 (已更新：别名、编辑、批量删除)
+    // ============================================================
     if (path === '/api/admin/outlooks') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM outlook_apis ORDER BY id DESC").run();
             return jsonResp(results);
         }
-        if (request.method === 'POST') {
-            const { name, client_id, client_secret, refresh_token } = await request.json();
-            await XYRJ_GMAILAPI.prepare("INSERT INTO outlook_apis (name, client_id, client_secret, refresh_token) VALUES (?, ?, ?, ?)")
-                .bind(name, client_id, client_secret, refresh_token).run();
+        if (request.method === 'POST') { // 新增
+            const { name, alias, client_id, client_secret, refresh_token } = await request.json();
+            await XYRJ_GMAILAPI.prepare("INSERT INTO outlook_apis (name, alias, client_id, client_secret, refresh_token) VALUES (?, ?, ?, ?, ?)")
+                .bind(name, alias || name, client_id, client_secret, refresh_token).run();
+            return jsonResp({ success: true });
+        }
+        if (request.method === 'PUT') { // 编辑
+            const { id, name, alias, client_id, client_secret, refresh_token } = await request.json();
+            await XYRJ_GMAILAPI.prepare("UPDATE outlook_apis SET name=?, alias=?, client_id=?, client_secret=?, refresh_token=? WHERE id=?")
+                .bind(name, alias, client_id, client_secret, refresh_token, id).run();
             return jsonResp({ success: true });
         }
     }
+    // Outlook 批量导入
+    if (path === '/api/admin/outlooks/batch' && request.method === 'POST') {
+        const { content } = await request.json();
+        const lines = content.split('\n');
+        const stmt = XYRJ_GMAILAPI.prepare("INSERT INTO outlook_apis (name, alias, client_id, client_secret, refresh_token) VALUES (?, ?, ?, ?, ?)");
+        const batch = [];
+        for (let line of lines) {
+            // 格式: 名称,别名,Client_ID,Client_Secret,Refresh_Token
+            const parts = line.split(/[|,，]/).map(p => p.trim());
+            if (parts.length >= 5) {
+                batch.push(stmt.bind(parts[0], parts[1], parts[2], parts[3], parts[4]));
+            } else if (parts.length === 4) {
+                 // 兼容旧格式没有别名
+                batch.push(stmt.bind(parts[0], parts[0], parts[1], parts[2], parts[3]));
+            }
+        }
+        if(batch.length > 0) await XYRJ_GMAILAPI.batch(batch);
+        return jsonResp({ success: true });
+    }
+    // Outlook 批量删除
+    if (path === '/api/admin/outlooks/batch_delete' && request.method === 'POST') {
+        const { ids } = await request.json();
+        if (ids && ids.length > 0) {
+            const placeholders = ids.map(() => '?').join(',');
+            await XYRJ_GMAILAPI.prepare(`DELETE FROM outlook_apis WHERE id IN (${placeholders})`).bind(...ids).run();
+        }
+        return jsonResp({ success: true });
+    }
+    // Outlook 单个删除
     if (path.startsWith('/api/admin/outlooks/') && request.method === 'DELETE') {
         const id = path.split('/').pop();
         await XYRJ_GMAILAPI.prepare("DELETE FROM outlook_apis WHERE id = ?").bind(id).run();
         return jsonResp({ success: true });
     }
+    // Outlook 状态切换
     if (path === '/api/admin/outlooks/toggle' && request.method === 'POST') {
         const { id, status } = await request.json();
         await XYRJ_GMAILAPI.prepare("UPDATE outlook_apis SET is_active = ? WHERE id = ?").bind(status, id).run();
