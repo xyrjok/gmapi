@@ -183,18 +183,16 @@ export default {
     // 2. 静态资源策略
     // ============================================================
     const isRoot = path === '/' || path === '/index.html';
-    const isEmailPage = path === '/email' || path === '/email.html'; // 新增：明确指定 email 页面
+    const isEmailPage = path === '/email' || path === '/email.html'; // 保持白名单
     const looksLikeFile = path.includes('.') || path.startsWith('/admin');
 
+    // 如果是白名单页面或看起来像文件，直接请求静态资源
     if (isRoot || looksLikeFile || isEmailPage) {
-        let req = request;
         
-        // 如果访问的是 /email (无后缀)，强制内部重写为 /email.html 以便读取文件
-        if (path === '/email') {
-            req = new Request(new URL('/email.html', request.url), request);
-        }
-
-        let assetResponse = await env.ASSETS.fetch(req);
+        // 【关键修复】直接使用原始 request，不要手动 new Request 修改路径
+        // Cloudflare Pages 会自动处理 /email 对应 email.html 的逻辑
+        let assetResponse = await env.ASSETS.fetch(request);
+        
         if (assetResponse.status >= 200 && assetResponse.status < 400) {
             return assetResponse;
         }
