@@ -296,7 +296,8 @@ export default {
                         const msgData = await msgRes.json();
 
                         if (!msgData.value) {
-                            throw new Error("Graph API 读取失败");
+                            // 修改处：将微软返回的具体错误信息打印出来
+                            throw new Error("Graph API 读取失败: " + JSON.stringify(msgData));
                         }
 
                         // 3. 数据格式标准化 (转为与 Gmail 相同的格式)
