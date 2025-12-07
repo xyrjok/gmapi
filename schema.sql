@@ -15,6 +15,16 @@ CREATE TABLE gmail_apis (
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE outlook_apis (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    client_id     TEXT NOT NULL,
+    client_secret TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    is_active     INTEGER DEFAULT 1,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE receive_rules (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT,
