@@ -183,10 +183,18 @@ export default {
     // 2. 静态资源策略
     // ============================================================
     const isRoot = path === '/' || path === '/index.html';
+    const isEmailPage = path === '/email' || path === '/email.html'; // 新增：明确指定 email 页面
     const looksLikeFile = path.includes('.') || path.startsWith('/admin');
 
-    if (isRoot || looksLikeFile) {
-        let assetResponse = await env.ASSETS.fetch(request);
+    if (isRoot || looksLikeFile || isEmailPage) {
+        let req = request;
+        
+        // 如果访问的是 /email (无后缀)，强制内部重写为 /email.html 以便读取文件
+        if (path === '/email') {
+            req = new Request(new URL('/email.html', request.url), request);
+        }
+
+        let assetResponse = await env.ASSETS.fetch(req);
         if (assetResponse.status >= 200 && assetResponse.status < 400) {
             return assetResponse;
         }
