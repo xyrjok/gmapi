@@ -115,6 +115,20 @@ export default {
     if (path === '/api/admin/receivers') {
         if (request.method === 'GET') {
             const { results } = await XYRJ_GMAILAPI.prepare("SELECT * FROM receive_rules ORDER BY id DESC").run();
+            // --- 修改开始：补充 provider 信息 ---
+            for (const rule of results) {
+                rule.provider = 'unknown';
+                if (rule.target_api_name) {
+                    const g = await XYRJ_GMAILAPI.prepare("SELECT id FROM gmail_apis WHERE name = ?").bind(rule.target_api_name).first();
+                    if (g) {
+                        rule.provider = 'gmail';
+                    } else {
+                        const o = await XYRJ_GMAILAPI.prepare("SELECT id FROM outlook_apis WHERE name = ?").bind(rule.target_api_name).first();
+                        if (o) rule.provider = 'outlook';
+                    }
+                }
+            }
+            // --- 修改结束 ---
             return jsonResp(results);
         }
         if (request.method === 'POST') {
@@ -139,6 +153,91 @@ export default {
         await XYRJ_GMAILAPI.prepare("DELETE FROM receive_rules WHERE id = ?").bind(id).run();
         return jsonResp({ success: true });
     }
+
+    // --- 新增接口：管理后台直接发送邮件 ---
+    if (path === '/api/admin/send_direct' && request.method === 'POST') {
+        const { node_name, to_email, body } = await request.json();
+        if (!node_name || !to_email) return jsonResp({ success: false, msg: "参数不完整" }, 400);
+
+        const emailBody = body || "This is a test email sent from the admin panel.";
+        const emailSubject = "Admin Panel Test Message";
+
+        // 1. 尝试匹配 Gmail
+        const gNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ?").bind(node_name).first();
+        if (gNode) {
+            try {
+                const params = new URLSearchParams({ 
+                    action: 'send', 
+                    token: gNode.token, 
+                    to: to_email, 
+                    subject: emailSubject, 
+                    body: emailBody 
+                });
+                await fetch(`${gNode.script_url}?${params}`);
+                return jsonResp({ success: true, msg: "Gmail 发送指令已发出" });
+            } catch (e) {
+                return jsonResp({ success: false, msg: "Gmail 发送失败: " + e.message });
+            }
+        }
+
+        // 2. 尝试匹配 Outlook
+        const oNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM outlook_apis WHERE name = ?").bind(node_name).first();
+        if (oNode) {
+            try {
+                // (1) 刷新 Token
+                const tokenParams = new URLSearchParams();
+                tokenParams.append('client_id', oNode.client_id);
+                tokenParams.append('client_secret', oNode.client_secret);
+                tokenParams.append('refresh_token', oNode.refresh_token);
+                tokenParams.append('grant_type', 'refresh_token');
+                tokenParams.append('scope', 'https://graph.microsoft.com/.default');
+
+                const tokenRes = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: tokenParams
+                });
+                const tokenData = await tokenRes.json();
+                if (!tokenData.access_token) throw new Error("Token 刷新失败: " + (tokenData.error_description || "未知错误"));
+
+                // (2) 调用 Graph API 发送邮件
+                const sendUrl = 'https://graph.microsoft.com/v1.0/me/sendMail';
+                const sendData = {
+                    message: {
+                        subject: emailSubject,
+                        body: {
+                            contentType: "Text",
+                            content: emailBody
+                        },
+                        toRecipients: [
+                            { emailAddress: { address: to_email } }
+                        ]
+                    }
+                };
+
+                const sendRes = await fetch(sendUrl, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${tokenData.access_token}`,
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(sendData)
+                });
+
+                if (!sendRes.ok) {
+                    const errText = await sendRes.text();
+                    throw new Error("API Error: " + errText);
+                }
+
+                return jsonResp({ success: true, msg: "Outlook 发送成功" });
+            } catch (e) {
+                return jsonResp({ success: false, msg: "Outlook 发送失败: " + e.message });
+            }
+        }
+
+        return jsonResp({ success: false, msg: "未找到指定名称的节点" }, 404);
+    }
+    // --- 新增接口结束 ---
 
     // ============================================================
     // 管理接口：Gmail 节点 (已更新：别名、编辑、批量删除)
