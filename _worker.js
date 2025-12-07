@@ -160,7 +160,8 @@ export default {
         if (!node_name || !to_email) return jsonResp({ success: false, msg: "参数不完整" }, 400);
 
         const emailBody = body || "This is a test email sent from the admin panel.";
-        const emailSubject = "Admin Panel Test Message";
+        // 【修改点】更改为固定的主题 "Current time"
+        const emailSubject = "Current time";
 
         // 1. 尝试匹配 Gmail
         const gNode = await XYRJ_GMAILAPI.prepare("SELECT * FROM gmail_apis WHERE name = ?").bind(node_name).first();
