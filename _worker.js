@@ -468,9 +468,11 @@ export default {
                             from: `${m.from.emailAddress.name || ''} <${m.from.emailAddress.address}>`,
                             // 优先用 bodyPreview (纯文本)，如果没有则尝试取 HTML 内容
                             snippet: m.bodyPreview,
-                            body: m.bodyPreview || (m.body ? m.body.content : "") || "No Content"
+                            // 【在此处修改】将原来的 body: ... 替换为下面这句。
+                            // 其中 2000 就是你想获取的字符数，可自定义修改。
+                            body: (m.body && m.body.content) ? m.body.content.substring(0, 2000) : (m.bodyPreview || "No Content")
                         }));
-
+    
                     } catch (err) {
                         fetchError = "Outlook 错误: " + err.message;
                         console.error(err);
