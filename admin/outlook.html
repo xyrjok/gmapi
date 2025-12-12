@@ -36,6 +36,7 @@
                 <div>
                     <button class="btn btn-sm btn-danger me-1" onclick="batchDelete()" id="btnBatchDel" style="display:none;"><i class="fas fa-trash"></i> 删除选中</button>
                     <button class="btn btn-sm btn-success me-1" onclick="showAddModal()"><i class="fas fa-plus"></i> 添加</button>
+                    <button class="btn btn-sm btn-secondary me-1" onclick="exportData()"><i class="fas fa-file-export"></i> 批量导出</button>
                     <button class="btn btn-sm btn-primary" onclick="showBatchModal()"><i class="fas fa-file-import"></i> 批量导入</button>
                 </div>
             </div>
@@ -69,9 +70,12 @@
                 <input type="hidden" id="editId">
                 <div class="mb-3"><label>别名 (自定义备注)</label><input type="text" class="form-control" id="itemAlias" placeholder="例如: 个人热号"></div>
                 <div class="mb-3"><label>节点名称 (用于规则匹配)</label><input type="text" class="form-control" id="itemName" placeholder="例如: outlook1"></div>
-                <div class="mb-3"><label>Client ID</label><input type="text" class="form-control" id="itemClientId"></div>
-                <div class="mb-3"><label>Client Secret</label><input type="text" class="form-control" id="itemClientSecret"></div>
-                <div class="mb-3"><label>Refresh Token</label><input type="text" class="form-control" id="itemRefreshToken"></div>
+                
+                <div class="mb-3">
+                    <label>授权信息 (Client ID, Secret, Refresh Token)</label>
+                    <textarea class="form-control" id="itemAuthInfo" rows="5" placeholder="请按顺序填入，支持用 逗号(,)、中文逗号(，) 或 竖线(|) 分隔"></textarea>
+                    <div class="form-text text-muted">格式顺序：Client ID [分隔符] Client Secret [分隔符] Refresh Token</div>
+                </div>
             </div>
             <div class="modal-footer"><button class="btn btn-primary" onclick="submitItem()">保存</button></div>
         </div>
@@ -146,9 +150,8 @@
         document.getElementById('editId').value = ''; 
         document.getElementById('itemAlias').value = ''; 
         document.getElementById('itemName').value = ''; 
-        document.getElementById('itemClientId').value = ''; 
-        document.getElementById('itemClientSecret').value = ''; 
-        document.getElementById('itemRefreshToken').value = ''; 
+        // 修改：清空新的文本域
+        document.getElementById('itemAuthInfo').value = ''; 
         itemModal.show(); 
     }
 
@@ -159,21 +162,33 @@
         document.getElementById('editId').value = item.id;
         document.getElementById('itemAlias').value = item.alias || item.name;
         document.getElementById('itemName').value = item.name;
-        document.getElementById('itemClientId').value = item.client_id;
-        document.getElementById('itemClientSecret').value = item.client_secret;
-        document.getElementById('itemRefreshToken').value = item.refresh_token;
+        
+        // 修改：将三个字段合并回填，使用 | 分隔
+        document.getElementById('itemAuthInfo').value = `${item.client_id}|${item.client_secret}|${item.refresh_token}`;
+        
         itemModal.show();
     }
 
     async function submitItem() {
         const id = document.getElementById('editId').value;
+        // 修改：获取文本域内容并拆分
+        const authInfo = document.getElementById('itemAuthInfo').value.trim();
+        // 支持 英文逗号, 中文逗号，, 竖线 |
+        const parts = authInfo.split(/[,，|]/).map(s => s.trim()).filter(Boolean);
+
+        if (parts.length < 3) {
+            alert("授权信息格式错误，必须包含 Client ID, Secret 和 Refresh Token");
+            return;
+        }
+
         const data = {
             alias: document.getElementById('itemAlias').value,
             name: document.getElementById('itemName').value,
-            client_id: document.getElementById('itemClientId').value,
-            client_secret: document.getElementById('itemClientSecret').value,
-            refresh_token: document.getElementById('itemRefreshToken').value
+            client_id: parts[0],
+            client_secret: parts[1],
+            refresh_token: parts[2]
         };
+        
         if(!data.name || !data.client_id || !data.refresh_token) { alert("请填写完整信息"); return; }
         
         if (id) {
@@ -203,6 +218,38 @@
     }
 
     async function toggleActive(id, status) { await api('/api/admin/outlooks/toggle', 'POST', { id, status: status ? 1 : 0 }); }
+
+    // 修改：新增批量导出函数
+    function exportData() {
+        if (!currentData || currentData.length === 0) {
+            alert("当前没有数据可导出");
+            return;
+        }
+
+        let content = "";
+        currentData.forEach(item => {
+            // 第一行：别名/节点名称 (如果别名不存在则显示名称)
+            const displayName = item.alias ? `${item.alias}/${item.name}` : item.name;
+            content += `${displayName}\n`;
+            
+            // 第二行：ID, Secret, Token 用中文逗号隔开
+            content += `${item.client_id}，${item.client_secret}，${item.refresh_token}\n`;
+            
+            // 每个邮箱用一个空行分开
+            content += `\n`; 
+        });
+
+        // 创建 Blob 对象并下载
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "outlook_nodes_export.txt";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
 </script>
 </body>
 </html>
