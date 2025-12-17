@@ -228,15 +228,8 @@
 
         let content = "";
         currentData.forEach(item => {
-            // 第一行：别名/节点名称 (如果别名不存在则显示名称)
-            const displayName = item.alias ? `${item.alias}/${item.name}` : item.name;
-            content += `${displayName}\n`;
-            
-            // 第二行：ID, Secret, Token 用中文逗号隔开
-            content += `${item.client_id}，${item.client_secret}，${item.refresh_token}\n`;
-            
-            // 每个邮箱用一个空行分开
-            content += `\n`; 
+            // 格式：别名[TAB]节点名称[TAB]Client_ID,Secret,RefreshToken
+            content += `${item.alias || ''}\t${item.name}\t${item.client_id},${item.client_secret},${item.refresh_token}\n`;
         });
 
         // 创建 Blob 对象并下载
